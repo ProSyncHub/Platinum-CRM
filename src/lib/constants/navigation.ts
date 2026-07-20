@@ -32,4 +32,9 @@ export const navigation = [
     href: "/reports",
     icon: BarChart3,
   },
+  {
+    title: "Team",
+    href: "/team",
+    icon: Users,
+  },
 ];
