@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { members } from "@/lib/mock-data/members";
 import StatusBadge from "./StatusBadge";
+import { getStageLabel } from "@/lib/utils/stage";
 
 import {
   Card,
@@ -69,9 +70,7 @@ export default function MembersTable() {
                   </td>
 
                   <td>
-                    <span className="font-medium">
-                      {member.currentStage}
-                    </span>
+                    {getStageLabel(member.currentStage)}
                   </td>
 
                   <td>

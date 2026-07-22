@@ -9,6 +9,7 @@ import CallHistory from "@/components/members/CallHistory";
 
 import { Button } from "@/components/ui/button";
 import MemberFollowups from "@/components/members/MemberFollowups";
+import { getStageLabel } from "@/lib/utils/stage";
 
 interface Props {
   params: Promise<{
@@ -78,7 +79,7 @@ export default async function MemberDetailsPage({
                 </p>
 
                 <p className="font-medium">
-                  {member.currentStage}
+                  {getStageLabel(member.currentStage)}
                 </p>
               </div>
 

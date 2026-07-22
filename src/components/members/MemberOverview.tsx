@@ -7,6 +7,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { getStageLabel } from "@/lib/utils/stage";
+
 interface Props {
   member: Member;
 }
@@ -30,7 +32,7 @@ export default function MemberOverview({
             </p>
 
             <p className="font-medium">
-              {member.currentStage}
+              {getStageLabel(member.currentStage)}
             </p>
           </div>
 
