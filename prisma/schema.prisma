@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  email      String   @unique
+  password   String
+  department String   // manager, ecom, brand, follow_up
+  role       String   // manager, employee
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Member {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberCode        String   @unique
+  fullName          String
+  phone             String
+  email             String
+  
+  currentStage      String   // onboarding, research, sourcing, approval, growth
+  currentMilestone  String
+  
+  assignedManager           String? @db.ObjectId
+  assignedEcomExecutive     String? @db.ObjectId
+  assignedBrandExecutive    String? @db.ObjectId
+  assignedFollowUpExecutive String? @db.ObjectId
+  
+  lastContactDate   DateTime?
+  nextFollowupDate  DateTime?
+  status            String   @default("healthy") // healthy, warning, delayed
+  
+  callLogs          CallLog[]
+  queryTransfers    QueryTransfer[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model CallLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  date      DateTime @default(now())
+  type      String   // inbound, outbound
+  outcome   String
+  notes     String
+  
+  createdAt DateTime @default(now())
+}
+
+model QueryTransfer {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId       String   @db.ObjectId
+  member         Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  fromDepartment String
+  toDepartment   String
+  assignedToUser String?  @db.ObjectId // Optional specific user to transfer to
+  
+  reason         String
+  status         String   @default("pending") // pending, resolved
+  
+  createdAt      DateTime @default(now())
+}

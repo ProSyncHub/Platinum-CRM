@@ -1,66 +1,51 @@
-import { callLogs } from "@/lib/mock-data/callLogs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Phone, ArrowRightLeft } from "lucide-react";
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+type EventItem = {
+  id: string;
+  type: "call" | "transfer";
+  date: Date;
+  title: string;
+  description: string;
+};
 
-interface Props {
-  memberId: string;
+interface MemberTimelineProps {
+  events: EventItem[];
 }
 
-export default function MemberTimeline({
-  memberId,
-}: Props) {
-  const memberLogs = callLogs.filter(
-    (log) => log.memberId === memberId
-  );
-
+export default function MemberTimeline({ events }: MemberTimelineProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          Member Timeline
-        </CardTitle>
+        <CardTitle>Member Timeline</CardTitle>
       </CardHeader>
 
       <CardContent>
-        {memberLogs.length === 0 ? (
+        {events.length === 0 ? (
           <div className="py-10 text-center text-slate-500">
             No activity found.
           </div>
         ) : (
           <div className="space-y-6">
-            {memberLogs.map((log, index) => (
-              <div
-                key={log.id}
-                className="relative flex gap-4"
-              >
-                {index !== memberLogs.length - 1 && (
-                  <div className="absolute top-4 left-[5px] h-full w-[2px] bg-slate-200" />
+            {events.map((event, index) => (
+              <div key={event.id} className="relative flex gap-4">
+                {index !== events.length - 1 && (
+                  <div className="absolute top-8 left-[15px] h-[calc(100%-1rem)] w-[2px] bg-slate-200" />
                 )}
 
-                <div className="relative z-10 mt-1 h-3 w-3 rounded-full bg-slate-900" />
+                <div className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 border text-slate-600">
+                  {event.type === "call" ? <Phone size={14} /> : <ArrowRightLeft size={14} />}
+                </div>
 
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">
-                      {log.outcome}
-                    </p>
-
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                      {log.type}
-                    </span>
+                <div className="flex-1 pb-4">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-sm text-slate-900">{event.title}</p>
+                    <time className="text-xs text-slate-500">
+                      {event.date.toLocaleDateString()} {event.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </time>
                   </div>
-
-                  <p className="mt-1 text-sm text-slate-600">
-                    {log.notes}
-                  </p>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    {log.date}
+                  <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">
+                    {event.description}
                   </p>
                 </div>
               </div>

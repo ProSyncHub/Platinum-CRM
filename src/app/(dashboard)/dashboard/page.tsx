@@ -1,52 +1,20 @@
-import KpiCard from "@/components/dashboard/KpiCard";
-import AttentionTable from "@/components/dashboard/AttentionTable";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import ManagerDashboard from "@/components/dashboard/ManagerDashboard";
+import EmployeeDashboard from "@/components/dashboard/EmployeeDashboard";
 
-import {
-  Users,
-  AlertTriangle,
-  Phone,
-  CalendarClock,
-} from "lucide-react";
+export default async function DashboardPage() {
+  const session = await getServerSession(authOptions);
 
-export default function DashboardPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">
-          Dashboard
-        </h1>
+  if (!session?.user) {
+    return <div>Not authenticated</div>;
+  }
 
-        <p className="mt-1 text-slate-500">
-          Overview of your platinum members.
-        </p>
-      </div>
+  const { role, department } = session.user;
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Total Members"
-          value={426}
-          icon={Users}
-        />
+  if (role === "manager") {
+    return <ManagerDashboard />;
+  }
 
-        <KpiCard
-          title="Delayed Members"
-          value={23}
-          icon={AlertTriangle}
-        />
-
-        <KpiCard
-          title="Calls This Week"
-          value={142}
-          icon={Phone}
-        />
-
-        <KpiCard
-          title="Followups Due"
-          value={18}
-          icon={CalendarClock}
-        />
-      </div>
-      <AttentionTable />
-    </div>
-  );
+  return <EmployeeDashboard department={department} />;
 }

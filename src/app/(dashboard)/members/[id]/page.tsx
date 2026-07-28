@@ -1,14 +1,11 @@
 import { notFound } from "next/navigation";
-
-import { members } from "@/lib/mock-data/members";
+import { prisma } from "@/lib/db";
 
 import MemberOverview from "@/components/members/MemberOverview";
 import MemberTimeline from "@/components/members/MemberTimeline";
-import AddCallDialog from "@/components/members/AddCallDialog";
-import CallHistory from "@/components/members/CallHistory";
+import LogCallButton from "@/components/members/LogCallButton";
 
 import { Button } from "@/components/ui/button";
-import MemberFollowups from "@/components/members/MemberFollowups";
 import { getStageLabel } from "@/lib/utils/stage";
 
 interface Props {
@@ -22,13 +19,43 @@ export default async function MemberDetailsPage({
 }: Props) {
   const { id } = await params;
 
-  const member = members.find(
-    (member) => member.id === id
-  );
+  // We should handle invalid ObjectID format, but for now we let it throw or handle it
+  if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+    notFound();
+  }
+
+  const member = await prisma.member.findUnique({
+    where: { id },
+    include: {
+      callLogs: {
+        orderBy: { date: 'desc' }
+      },
+      queryTransfers: {
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
 
   if (!member) {
     notFound();
   }
+
+  const events = [
+    ...member.callLogs.map(log => ({
+      id: log.id,
+      type: "call" as const,
+      date: log.date,
+      title: `Call: ${log.outcome}`,
+      description: log.notes
+    })),
+    ...member.queryTransfers.map(transfer => ({
+      id: transfer.id,
+      type: "transfer" as const,
+      date: transfer.createdAt,
+      title: `Transferred to ${transfer.toDepartment}`,
+      description: transfer.reason
+    }))
+  ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
   return (
     <div className="space-y-6">
@@ -45,7 +72,7 @@ export default async function MemberDetailsPage({
         </div>
 
         <div className="flex gap-3">
-          <AddCallDialog />
+          <LogCallButton memberId={member.id} />
 
           <Button variant="outline">
             Schedule Followup
@@ -53,16 +80,11 @@ export default async function MemberDetailsPage({
         </div>
       </div>
 
-      {/* Overview */}
-      <MemberOverview member={member} />
-
       {/* Content Grid */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Timeline */}
         <div className="space-y-6 lg:col-span-2">
-            <MemberTimeline memberId={member.id} />
-
-            <CallHistory memberId={member.id} />
+            <MemberTimeline events={events} />
         </div>
 
         {/* Quick Stats */}
@@ -78,8 +100,8 @@ export default async function MemberDetailsPage({
                   Current Stage
                 </p>
 
-                <p className="font-medium">
-                  {getStageLabel(member.currentStage)}
+                <p className="font-medium capitalize">
+                  {member.currentStage.replace("_", " ")}
                 </p>
               </div>
 
@@ -90,56 +112,6 @@ export default async function MemberDetailsPage({
 
                 <p className="font-medium">
                   {member.currentMilestone}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm text-slate-500">
-                  Executive
-                </p>
-
-                <p className="font-medium">
-                  {member.assignedResearchExecutive}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm text-slate-500">
-                  Next Followup
-                </p>
-
-                <p className="font-medium">
-                  {member.nextFollowupDate}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border bg-white p-5">
-            <h3 className="font-semibold">
-              <MemberFollowups
-                memberId={member.id}
-              />
-            </h3>
-
-            <div className="mt-4 space-y-3">
-              <div className="rounded-lg border p-3">
-                <p className="font-medium">
-                  Follow-up Call
-                </p>
-
-                <p className="text-sm text-slate-500">
-                  Due: 8 Jul 2026
-                </p>
-              </div>
-
-              <div className="rounded-lg border p-3">
-                <p className="font-medium">
-                  Research Review
-                </p>
-
-                <p className="text-sm text-slate-500">
-                  Pending
                 </p>
               </div>
             </div>
