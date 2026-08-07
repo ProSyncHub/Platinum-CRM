@@ -1,69 +1,54 @@
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { prisma } from "../src/lib/db";
 import { REAL_PLATINUM_MEMBERS } from "../src/lib/data/platinumMembersData";
-import { DEFAULT_SERVICE_PARTNERS } from "../src/lib/servicePartners";
 
-const prisma = new PrismaClient();
+async function cleanAndReset() {
+  console.log("🧹 Starting Database Data Cleanup...");
 
-async function main() {
-  console.log("🌱 Starting Platinum CRM Database Seed...");
-
-  const seedPassword = process.env.CRM_SEED_PASSWORD;
-  if (!seedPassword) throw new Error("CRM_SEED_PASSWORD is required for seeding.");
-  const passwordHash = await bcrypt.hash(seedPassword, 10);
-
-  // 1. Seed Core Administrative Staff
-  const staffToSeed = [
-    {
-      name: "ProSync Admin",
-      email: "admin@prosyncedu.com",
-      role: "admin",
-      department: "Management",
+  // 1. Remove all mock PNP members & their relations
+  const pnpMembers = await prisma.member.findMany({
+    where: {
+      OR: [
+        { programType: "PNP" },
+        { memberCode: { startsWith: "PNP" } },
+      ],
     },
-    {
-      name: "Samyak Jain",
-      email: "samyakjainprosync@gmail.com",
-      role: "manager",
-      department: "Operations",
-    },
-    {
-      name: "Mayank Rastogi",
-      email: "mayankr.prosync@gmail.com",
-      role: "manager",
-      department: "Operations",
-    },
-  ];
+    select: { id: true, memberCode: true, fullName: true },
+  });
 
-  for (const staff of staffToSeed) {
-    await prisma.user.upsert({
-      where: { email: staff.email },
-      update: {
-        name: staff.name,
-        role: staff.role,
-        department: staff.department,
-        active: true,
-      },
-      create: {
-        name: staff.name,
-        email: staff.email,
-        password: passwordHash,
-        role: staff.role,
-        department: staff.department,
-        active: true,
-      },
+  console.log(`Found ${pnpMembers.length} mock PNP members to remove.`);
+
+  for (const m of pnpMembers) {
+    // Delete associated call logs & queries
+    await prisma.callLog.deleteMany({ where: { memberId: m.id } });
+    await prisma.queryTransfer.deleteMany({ where: { memberId: m.id } });
+    await prisma.member.delete({ where: { id: m.id } });
+    console.log(`🗑️ Removed PNP member: ${m.memberCode} - ${m.fullName}`);
+  }
+
+  // 2. Fix any "Deepanshi" assignments in the database
+  const deepanshiMembers = await prisma.member.findMany({
+    where: {
+      allotedTo: { contains: "Deepanshi" },
+    },
+  });
+
+  if (deepanshiMembers.length > 0) {
+    console.log(`Found ${deepanshiMembers.length} members with obsolete assignment. Updating to Unassigned...`);
+    await prisma.member.updateMany({
+      where: { allotedTo: { contains: "Deepanshi" } },
+      data: { allotedTo: "Unassigned" },
     });
   }
-  console.log(`✅ Seeded ${staffToSeed.length} Admin accounts.`);
 
-  // 2. Seed Real Platinum Members
-  let seededCount = 0;
+  // 3. Ensure all real Platinum members are properly synced and up to date
+  let syncedPlatinumCount = 0;
   for (const m of REAL_PLATINUM_MEMBERS) {
-    const programType = m.programType || (m.memberCode.startsWith("PNP") ? "PNP" : "Platinum");
+    const alloted = m.allotedTo === "Deepanshi" ? "Unassigned" : m.allotedTo;
 
-    const memberRecord = await prisma.member.upsert({
+    await prisma.member.upsert({
       where: { memberCode: m.memberCode },
       update: {
-        programType,
+        programType: "Platinum",
         firstName: m.firstName,
         lastName: m.lastName,
         fullName: m.fullName,
@@ -75,7 +60,7 @@ async function main() {
         plan: m.plan,
         activeStatus: m.activeStatus,
         holdReason: m.holdReason,
-        allotedTo: m.allotedTo,
+        allotedTo: alloted,
         oneOnOneSessions: m.oneOnOneSessions,
         businessType: m.businessType,
         brandCollaborations: m.brandCollaborations,
@@ -98,7 +83,7 @@ async function main() {
       },
       create: {
         memberCode: m.memberCode,
-        programType,
+        programType: "Platinum",
         firstName: m.firstName,
         lastName: m.lastName,
         fullName: m.fullName,
@@ -110,7 +95,7 @@ async function main() {
         plan: m.plan,
         activeStatus: m.activeStatus,
         holdReason: m.holdReason,
-        allotedTo: m.allotedTo,
+        allotedTo: alloted,
         oneOnOneSessions: m.oneOnOneSessions,
         businessType: m.businessType,
         brandCollaborations: m.brandCollaborations,
@@ -132,33 +117,22 @@ async function main() {
         countryInterest: m.countryInterest,
       },
     });
-
-    seededCount++;
+    syncedPlatinumCount++;
   }
 
-  for (const partner of DEFAULT_SERVICE_PARTNERS) {
-    await prisma.servicePartner.upsert({
-      where: { serviceCode: partner.serviceCode },
-      update: {
-        ...partner,
-        active: true,
-      },
-      create: {
-        ...partner,
-        active: true,
-      },
-    });
-  }
+  // 4. Verification summary
+  const totalMembers = await prisma.member.count();
+  const totalPlatinum = await prisma.member.count({ where: { programType: "Platinum" } });
+  const totalPNP = await prisma.member.count({ where: { programType: "PNP" } });
+  const totalStaff = await prisma.user.count();
 
-  console.log(`✅ Seeded ${seededCount} Real Platinum Members!`);
-  console.log("🎉 Database seeding finished successfully!");
+  console.log("\n✅ Database Reset Complete!");
+  console.log(`📊 Total Members in CRM: ${totalMembers}`);
+  console.log(`👑 Real Platinum Members: ${totalPlatinum}`);
+  console.log(`⚡ PNP Members: ${totalPNP} (Clean slate — ready for your real data entry)`);
+  console.log(`👥 Total Staff: ${totalStaff}`);
 }
 
-main()
-  .catch((e) => {
-    console.error("❌ Seed error:", e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+cleanAndReset()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
