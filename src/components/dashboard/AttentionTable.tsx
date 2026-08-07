@@ -1,88 +1,54 @@
+import { prisma } from "@/lib/db";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  getMembershipStatus,
+  getContactAttentionStatus,
+} from "@/lib/membershipUtils";
+import AttentionTableClient from "./AttentionTableClient";
 
-const members = [
-  {
-    name: "John Smith",
-    stage: "Research Phase",
-    days: 42,
-    status: "Delayed",
-  },
-  {
-    name: "Sarah Khan",
-    stage: "Sourcing Stage",
-    days: 29,
-    status: "Review",
-  },
-  {
-    name: "David",
-    stage: "Approval Stage",
-    days: 18,
-    status: "Followup",
-  },
-];
+export default async function AttentionTable() {
+  const members = await prisma.member.findMany({
+    take: 60,
+    orderBy: { updatedAt: "desc" },
+    include: {
+      callLogs: {
+        orderBy: { date: "desc" },
+        take: 1,
+      },
+    },
+  });
 
-export default function AttentionTable() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          Members Requiring Attention
-        </CardTitle>
-      </CardHeader>
+  // Filter members that need attention: Expiring soon (<30 days), Expired, On Hold, Inactive (>7d), or flagged
+  const attentionMembers = members
+    .map((m) => {
+      const statusInfo = getMembershipStatus(
+        m.enrollingDate,
+        m.endDate,
+        m.activeStatus
+      );
+      const contactStatus = getContactAttentionStatus(
+        m.callLogs[0]?.date || null,
+        m.nextConnectDate
+      );
+      return {
+        ...m,
+        lastConnectDate: m.callLogs[0]?.date || null,
+        lastContactMedium: m.callLogs[0]?.medium || null,
+        lastContactStaff: m.callLogs[0]?.staffName || null,
+        statusInfo,
+        contactStatus,
+      };
+    })
+    .filter(
+      (m) =>
+        m.statusInfo.isExpiringSoon ||
+        m.statusInfo.isExpired ||
+        m.statusInfo.status === "On Hold" ||
+        m.contactStatus.urgency === "urgent" ||
+        m.contactStatus.urgency === "due_soon" ||
+        m.healthStatus === "warning" ||
+        m.healthStatus === "critical"
+    )
+    .slice(0, 10);
 
-      <CardContent>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b">
-              <th className="py-3 text-left">
-                Member
-              </th>
-
-              <th className="text-left">
-                Stage
-              </th>
-
-              <th className="text-left">
-                Days
-              </th>
-
-              <th className="text-left">
-                Status
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {members.map((member) => (
-              <tr
-                key={member.name}
-                className="border-b"
-              >
-                <td className="py-4">
-                  {member.name}
-                </td>
-
-                <td>
-                  {member.stage}
-                </td>
-
-                <td>
-                  {member.days}
-                </td>
-
-                <td>
-                  {member.status}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
+  return <AttentionTableClient initialMembers={attentionMembers} />;
 }

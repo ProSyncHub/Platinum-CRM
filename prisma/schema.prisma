@@ -12,63 +12,214 @@ model User {
   name       String
   email      String   @unique
   password   String
-  department String   // manager, ecom, brand, follow_up
-  role       String   // manager, employee
+  department String // management, sales, operations, support, research, sourcing, etc.
+  role       String // admin, manager, employee
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
 
 model Member {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  memberCode        String   @unique
-  fullName          String
-  phone             String
-  email             String
-  
-  currentStage      String   // onboarding, research, sourcing, approval, growth
-  currentMilestone  String
-  
-  assignedManager           String? @db.ObjectId
-  assignedEcomExecutive     String? @db.ObjectId
-  assignedBrandExecutive    String? @db.ObjectId
-  assignedFollowUpExecutive String? @db.ObjectId
-  
-  lastContactDate   DateTime?
-  nextFollowupDate  DateTime?
-  status            String   @default("healthy") // healthy, warning, delayed
-  
-  callLogs          CallLog[]
-  queryTransfers    QueryTransfer[]
+  id         String  @id @default(auto()) @map("_id") @db.ObjectId
+  memberCode String  @unique
+  firstName  String
+  lastName   String?
+  fullName   String
+  phone      String
+  email      String
+  state      String?
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  // Membership & Expiration Lifecycle
+  programType   String    @default("Platinum") // Platinum, PNP, etc.
+  department    String?   @default("operations") // Owning department; legacy records default to Operations
+  enrollingDate DateTime?
+  endDate       DateTime?
+  plan          String?   @default("6 Months") // 6 Months, Yearly, Custom
+  activeStatus  String    @default("Active") // Active, Not Active, On Hold, Expired
+  holdReason    String?
+
+  // Executive Assignment & Sessions
+  allotedTo        String? // Assigned staff member (e.g. Samyak, Mayank, Jaanvi, Muskaan, etc.)
+  oneOnOneSessions Int     @default(0) // AB 1 on 1 Session count
+
+  // Business, Sourcing & Brands
+  businessType        String? // Reseller, Private label, Both
+  brandCollaborations String?
+  plBrand             String? // Category / Private Label Brand
+  resellingBrand      String? // Reselling Brand
+  salesData           String? // e.g. "45000", "2.5 Lakhs", "4 lacs per month"
+  salesAmount         Float? // Parsed numeric value for revenue analytics
+
+  // 5-Stage Journey Engine
+  currentStage     String  @default("onboarding") // onboarding, research, sourcing, approval, growth
+  currentMilestone String? // Decision Stage, Brand/Product Validation, Authorization/Sourcing, Financial Validation, Go-Live Ready/Growth
+  healthStatus     String  @default("healthy") // healthy, warning, critical, needs_attention
+  paymentStatus    String  @default("paid") // paid, partial, unpaid, unknown
+  paymentNotes     String?
+
+  // Additional Dossier & Communication Tracking
+  notes             String?
+  detailedNotes     String?
+  lastConnectDate   DateTime?
+  nextConnectDate   DateTime?
+  lastContactMedium String?   @default("phone") // phone, whatsapp, zoom, meet, email, sms
+  lastContactStaff  String? // Staff member who last contacted
+
+  // Follow-up eligibility: auto follows active/recently-expired members; always/never are Super Admin overrides
+  followUpPreference          String?   @default("auto") // auto, always, never
+  followUpPreferenceReason    String?
+  followUpPreferenceUpdatedAt DateTime?
+  followUpPreferenceUpdatedBy String?
+
+  budgetAvailable String?
+  gstStatus       String?
+  countryInterest String? // USA, Australia, UAE, UK, India
+
+  callLogs         CallLog[]
+  queryTransfers   QueryTransfer[]
+  serviceReferrals MemberServiceReferral[]
+  followUpTasks    FollowUpTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CallLog {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  memberId  String   @db.ObjectId
-  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  
-  date      DateTime @default(now())
-  type      String   // inbound, outbound
-  outcome   String
-  notes     String
-  
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  memberId String @db.ObjectId
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  date     DateTime @default(now())
+  type     String   @default("outbound") // inbound, outbound
+  medium   String   @default("phone") // phone, whatsapp, zoom, meet, email, sms, in_person
+  outcome  String // Connected, Scheduled 1-on-1, Voicemail, Busy, No Answer, Resolved, Followup Required
+  duration Int?     @default(0) // duration in minutes
+  notes    String
+
+  staffName       String?
+  staffEmail      String?
+  staffDepartment String?
+  staffUserId     String? @db.ObjectId
+
+  editedAt      DateTime?
+  editedByName  String?
+  editedByEmail String?
+
   createdAt DateTime @default(now())
 }
 
 model QueryTransfer {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  memberId       String   @db.ObjectId
-  member         Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  
-  fromDepartment String
-  toDepartment   String
-  assignedToUser String?  @db.ObjectId // Optional specific user to transfer to
-  
-  reason         String
-  status         String   @default("pending") // pending, resolved
-  
-  createdAt      DateTime @default(now())
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  memberId String @db.ObjectId
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  fromDepartment  String
+  toDepartment    String
+  assignedToUser  String? @db.ObjectId
+  assignedToName  String?
+  assignedToEmail String?
+  priority        String  @default("medium") // low, medium, high, urgent
+
+  reason           String
+  status           String    @default("pending") // pending, resolved
+  resolutionNotes  String?
+  resolutionMedium String?
+  resolvedByName   String?
+  resolvedByEmail  String?
+  resolvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+}
+
+model FollowUpTask {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  memberId String @db.ObjectId
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  title        String   @default("Member follow-up")
+  instructions String?
+  priority     String   @default("medium") // low, medium, high, urgent
+  status       String   @default("pending") // pending, in_progress, completed, cancelled
+  dueAt        DateTime
+
+  assignedToUser       String @db.ObjectId
+  assignedToName       String
+  assignedToEmail      String
+  assignedToDepartment String
+
+  createdByUser       String @db.ObjectId
+  createdByName       String
+  createdByEmail      String
+  createdByDepartment String
+
+  completedAt     DateTime?
+  completedByUser String?   @db.ObjectId
+  completedByName String?
+  completionNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assignedToUser, status, dueAt])
+  @@index([assignedToDepartment, status, dueAt])
+  @@index([memberId, status])
+}
+
+model Program {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  codePrefix  String   @unique
+  description String?
+  icon        String?  @default("👑")
+  color       String?  @default("#f59e0b")
+  badgeColor  String?  @default("amber")
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ServicePartner {
+  id                    String  @id @default(auto()) @map("_id") @db.ObjectId
+  serviceCode           String  @unique
+  serviceName           String
+  providerName          String
+  category              String
+  description           String?
+  benefitLabel          String?
+  includedConsultations Int     @default(0)
+  contactPerson         String?
+  contactEmail          String?
+  contactPhone          String?
+  active                Boolean @default(true)
+  order                 Int     @default(0)
+
+  referrals MemberServiceReferral[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MemberServiceReferral {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String         @db.ObjectId
+  member    Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  partnerId String         @db.ObjectId
+  partner   ServicePartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  status          String    @default("referred") // referred, contacted, consultation_scheduled, in_progress, completed, on_hold, cancelled
+  ownerName       String?
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  notes           String?
+  assignedByName  String?
+  assignedByEmail String?
+  updatedByName   String?
+  updatedByEmail  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, partnerId])
+  @@index([status])
 }

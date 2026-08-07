@@ -4,6 +4,7 @@ import {
   Phone,
   CalendarCheck,
   BarChart3,
+  Handshake,
 } from "lucide-react";
 
 export const navigation = [
@@ -26,6 +27,11 @@ export const navigation = [
     title: "Followups",
     href: "/followups",
     icon: CalendarCheck,
+  },
+  {
+    title: "Partner Services",
+    href: "/services",
+    icon: Handshake,
   },
   {
     title: "Reports",
