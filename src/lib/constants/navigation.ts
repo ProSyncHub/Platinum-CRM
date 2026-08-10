@@ -1,15 +1,23 @@
 import {
   LayoutDashboard,
   Users,
+  Search,
+  ShieldCheck,
   Phone,
   CalendarCheck,
   BarChart3,
   Handshake,
+  Inbox,
 } from "lucide-react";
 
 export const navigation = [
   {
-    title: "Dashboard",
+    title: "Member Workspace",
+    href: "/workspace",
+    icon: Search,
+  },
+  {
+    title: "Overview",
     href: "/dashboard",
     icon: LayoutDashboard,
   },
@@ -17,6 +25,11 @@ export const navigation = [
     title: "Members",
     href: "/members",
     icon: Users,
+  },
+  {
+    title: "Leads",
+    href: "/leads",
+    icon: Inbox,
   },
   {
     title: "Calls",
@@ -37,6 +50,12 @@ export const navigation = [
     title: "Reports",
     href: "/reports",
     icon: BarChart3,
+  },
+  {
+    title: "Approvals",
+    href: "/approvals",
+    icon: ShieldCheck,
+    adminOnly: true,
   },
   {
     title: "Team",

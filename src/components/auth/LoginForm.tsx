@@ -27,7 +27,7 @@ export default function LoginForm() {
       setError("Invalid email or password. Please verify your credentials.");
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      router.push("/workspace");
       router.refresh();
     }
   };

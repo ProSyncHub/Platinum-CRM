@@ -287,21 +287,25 @@ export default function MemberDetailClient({
               Transfer Query
             </button>
 
-            <button
-              onClick={() => setIsAdvanceStageOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-all cursor-pointer"
-            >
-              <ArrowRightCircle className="w-4 h-4 text-blue-600" />
-              Update Stage
-            </button>
+            {isElevatedUser && (
+              <>
+                <button
+                  onClick={() => setIsAdvanceStageOpen(true)}
+                  className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-all cursor-pointer"
+                >
+                  <ArrowRightCircle className="w-4 h-4 text-blue-600" />
+                  Update Stage
+                </button>
 
-            <button
-              onClick={() => setIsEditOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all cursor-pointer"
-            >
-              <Edit2 className="w-4 h-4" />
-              Edit Profile
-            </button>
+                <button
+                  onClick={() => setIsEditOpen(true)}
+                  className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all cursor-pointer"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  Edit Profile
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -318,8 +322,10 @@ export default function MemberDetailClient({
               return (
                 <div
                   key={s.id}
-                  onClick={() => setIsAdvanceStageOpen(true)}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  onClick={isElevatedUser ? () => setIsAdvanceStageOpen(true) : undefined}
+                  className={`p-3.5 rounded-2xl border transition-all ${
+                    isElevatedUser ? "cursor-pointer" : "cursor-default"
+                  } ${
                     isCurrent
                       ? "bg-amber-50 border-amber-400 shadow-xs ring-2 ring-amber-400/40"
                       : isPast
@@ -727,23 +733,27 @@ export default function MemberDetailClient({
         onSuccess={reloadData}
       />
 
-      <AdvanceStageModal
-        isOpen={isAdvanceStageOpen}
-        onClose={() => setIsAdvanceStageOpen(false)}
-        memberId={member.id}
-        memberName={member.fullName}
-        currentStage={member.currentStage}
-        onSuccess={reloadData}
-      />
+      {isElevatedUser && (
+        <>
+          <AdvanceStageModal
+            isOpen={isAdvanceStageOpen}
+            onClose={() => setIsAdvanceStageOpen(false)}
+            memberId={member.id}
+            memberName={member.fullName}
+            currentStage={member.currentStage}
+            onSuccess={reloadData}
+          />
 
-      <EditMemberModal
-        isOpen={isEditOpen}
-        onClose={() => setIsEditOpen(false)}
-        member={member}
-        onSuccess={reloadData}
-        isAdmin={isSuperAdmin}
-        canManagePayments={isElevatedUser}
-      />
+          <EditMemberModal
+            isOpen={isEditOpen}
+            onClose={() => setIsEditOpen(false)}
+            member={member}
+            onSuccess={reloadData}
+            isAdmin={isSuperAdmin}
+            canManagePayments={isElevatedUser}
+          />
+        </>
+      )}
 
       {resolvingTransfer && (
         <ResolveQueryModal

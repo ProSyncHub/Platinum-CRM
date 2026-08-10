@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { revalidatePath } from "next/cache";
 import { canAccessMember, normalizeDepartment } from "@/lib/authorization";
+import { syncMemberBackground } from "@/lib/memberBackground";
 
 export async function logCall(data: {
   memberId: string;
@@ -59,6 +60,8 @@ export async function logCall(data: {
       },
     });
   }
+
+  await syncMemberBackground(memberId);
 
   revalidatePath(`/members/${memberId}`);
   revalidatePath("/members");

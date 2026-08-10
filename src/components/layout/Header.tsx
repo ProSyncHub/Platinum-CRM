@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, Shield, Briefcase, UserCheck, Bell, Sparkles } from "lucide-react";
+import { LogOut, Shield, Briefcase, UserCheck, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 export default function Header() {
@@ -63,14 +63,14 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Quick Link to Escalations / Followups */}
+        {/* Daily CRM shortcut */}
         <Link
-          href="/followups"
+          href="/workspace"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200 text-xs font-bold transition-all shadow-xs"
-          title="Weekly Follow-ups & Escalations"
+          title="Find a member"
         >
-          <Bell className="w-3.5 h-3.5 text-amber-500" />
-          <span className="hidden md:inline">Weekly Follow-Ups</span>
+          <Search className="w-3.5 h-3.5 text-amber-500" />
+          <span className="hidden md:inline">Find Member</span>
         </Link>
 
         {user && (

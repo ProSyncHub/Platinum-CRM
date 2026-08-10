@@ -2,7 +2,10 @@ import { withAuth } from "next-auth/middleware";
 
 const protectedRoutes = [
   "/dashboard",
+  "/workspace",
+  "/approvals",
   "/members",
+  "/leads",
   "/calls",
   "/followups",
   "/reports",
@@ -34,7 +37,10 @@ export default withAuth({
 export const config = {
   matcher: [
     "/dashboard/:path*",
+    "/workspace/:path*",
+    "/approvals/:path*",
     "/members/:path*",
+    "/leads/:path*",
     "/calls/:path*",
     "/followups/:path*",
     "/reports/:path*",

@@ -19,6 +19,11 @@ import {
   memberScopeFor,
   normalizeDepartment,
 } from "@/lib/authorization";
+import {
+  composeMemberBackground,
+  syncMemberBackground,
+} from "@/lib/memberBackground";
+import { buildMemberAiSource } from "@/lib/memberAi";
 
 export interface MemberFilterOptions {
   search?: string;
@@ -40,7 +45,18 @@ export async function getAllMembers(filters: MemberFilterOptions = {}) {
 
   try {
     const rawMembers = await prisma.member.findMany({
-      where: memberScopeFor(session.user),
+      where: {
+        AND: [
+          memberScopeFor(session.user),
+          {
+            OR: [
+              { approvalStatus: null },
+              { approvalStatus: { isSet: false } },
+              { approvalStatus: "approved" },
+            ],
+          },
+        ],
+      },
       include: {
         callLogs: {
           orderBy: { date: "desc" },
@@ -286,6 +302,10 @@ export async function getMemberById(id: string) {
         queryTransfers: {
           orderBy: { createdAt: "desc" },
         },
+        departmentUpdates: {
+          orderBy: { createdAt: "desc" },
+        },
+        aiAnalysis: true,
         serviceReferrals: {
           include: { partner: true },
           orderBy: { updatedAt: "desc" },
@@ -309,11 +329,27 @@ export async function getMemberById(id: string) {
       verifiedLastConnectDate,
       member.nextConnectDate
     );
+    const generatedBackground = composeMemberBackground({
+      existingNotes: member.notes,
+      manualBackground: member.detailedNotes,
+      communications: member.callLogs,
+      departmentUpdates: member.departmentUpdates,
+    });
+    const aiSource = buildMemberAiSource({
+      ...member,
+      notes: generatedBackground,
+    });
+    const aiAnalysisNeedsRefresh =
+      !member.aiAnalysis ||
+      member.aiAnalysis.status !== "ready" ||
+      !member.aiAnalysis.analysisJson ||
+      member.aiAnalysis.sourceHash !== aiSource.sourceHash;
 
     return {
       success: true,
       member: {
         ...member,
+        notes: generatedBackground,
         lastConnectDate: verifiedLastConnectDate,
         lastContactMedium: latestInteraction?.medium || null,
         lastContactStaff: latestInteraction?.staffName || null,
@@ -321,6 +357,8 @@ export async function getMemberById(id: string) {
         statusInfo,
         contactStatus,
         revenue: member.salesAmount || parseSalesValue(member.salesData),
+        aiAnalysisNeedsRefresh,
+        aiAnalysisSourceHash: aiSource.sourceHash,
       },
     };
   } catch (err: any) {
@@ -353,6 +391,26 @@ export async function createMember(data: {
   }
 
   try {
+    const duplicate = await prisma.member.findFirst({
+      where: {
+        OR: [
+          { email: { equals: data.email.trim(), mode: "insensitive" } },
+          { phone: data.phone.trim() },
+        ],
+      },
+      select: { id: true, memberCode: true },
+    });
+    if (duplicate) {
+      return {
+        success: false,
+        error: `This contact already exists as ${duplicate.memberCode}.`,
+        memberId: duplicate.id,
+      };
+    }
+
+    const administrator = ["admin", "superadmin"].includes(
+      session.user.role?.trim().toLowerCase() || "",
+    );
     const year = new Date().getFullYear();
     const programType = data.programType || "Platinum";
     const count = await prisma.member.count({
@@ -396,8 +454,15 @@ export async function createMember(data: {
         enrollingDate: enrolling,
         endDate: endDate,
         plan,
-        activeStatus: "Active",
-        allotedTo: data.allotedTo || "Samyak",
+        activeStatus: administrator ? "Active" : "Pending Approval",
+        approvalStatus: administrator ? "approved" : "pending",
+        requestedProgram: programType,
+        submittedByUser: session.user.id || null,
+        submittedByName: session.user.name || "Staff Member",
+        submittedByEmail: session.user.email || "",
+        submittedByDepartment: normalizeDepartment(session.user.department),
+        submittedAt: new Date(),
+        allotedTo: data.allotedTo || session.user.name || null,
         businessType: data.businessType || "Reseller",
         brandCollaborations: data.brandCollaborations,
         plBrand: data.plBrand,
@@ -430,10 +495,14 @@ export async function createMember(data: {
       });
     }
 
+    await syncMemberBackground(member.id);
+
     revalidatePath("/members");
     revalidatePath("/dashboard");
+    revalidatePath("/workspace");
+    revalidatePath("/approvals");
 
-    return { success: true, memberId: member.id };
+    return { success: true, memberId: member.id, pendingApproval: !administrator };
   } catch (err: any) {
     console.error("Error creating member:", err);
     return { success: false, error: err.message || "Failed to create member" };
@@ -480,6 +549,13 @@ export async function updateMember(
     if (!(await canAccessMember(session.user, id))) {
       return { success: false, error: "You do not have access to this member." };
     }
+    if (!isElevatedViewer(session.user)) {
+      return {
+        success: false,
+        error:
+          "Only managers and administrators can edit the master member profile. Use a department update to record your team's work.",
+      };
+    }
     if (
       (data.paymentStatus !== undefined || data.paymentNotes !== undefined) &&
       !isElevatedViewer(session.user)
@@ -493,6 +569,9 @@ export async function updateMember(
       return { success: false, error: "Invalid payment status." };
     }
     const updatePayload: any = { ...data };
+    // This field is generated from verified CRM activity and must not be
+    // overwritten from the master-data editor.
+    delete updatePayload.notes;
 
     if (data.firstName || data.lastName !== undefined) {
       const existing = await prisma.member.findUnique({ where: { id } });
@@ -535,6 +614,12 @@ export async function advanceMemberStage(
   try {
     if (!(await canAccessMember(session.user, id))) {
       return { success: false, error: "You do not have access to this member." };
+    }
+    if (!isElevatedViewer(session.user)) {
+      return {
+        success: false,
+        error: "Only managers and administrators can update the member's master stage.",
+      };
     }
     const stageObj = PLATINUM_STAGES.find((s) => s.id === targetStage);
     if (!stageObj) {
@@ -586,6 +671,12 @@ export async function toggleMemberHold(id: string, reason?: string) {
     if (!(await canAccessMember(session.user, id))) {
       return { success: false, error: "You do not have access to this member." };
     }
+    if (!isElevatedViewer(session.user)) {
+      return {
+        success: false,
+        error: "Only managers and administrators can place a member on hold.",
+      };
+    }
     const existing = await prisma.member.findUnique({ where: { id } });
     if (!existing) return { success: false, error: "Member not found" };
 
@@ -615,6 +706,13 @@ export async function deleteOrArchiveMember(
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  if (!isElevatedViewer(session.user)) {
+    return {
+      success: false,
+      error: "Only managers and administrators can archive or change a member's active status.",
+    };
   }
 
   if (!["admin", "superadmin"].includes(session.user.role) && action === "delete") {
@@ -847,7 +945,11 @@ export async function logCallForMember(
       });
     }
 
+    await syncMemberBackground(memberId);
+
     revalidatePath(`/members/${memberId}`);
+    revalidatePath(`/workspace/${memberId}`);
+    revalidatePath("/workspace");
     revalidatePath("/members");
     revalidatePath("/followups");
     revalidatePath("/calls");
@@ -975,6 +1077,7 @@ export async function resolveQueryTransfer(
           staffDepartment: session.user.department || updated.toDepartment,
         },
       });
+      await syncMemberBackground(updated.memberId);
     }
 
     revalidatePath(`/members/${updated.memberId}`);

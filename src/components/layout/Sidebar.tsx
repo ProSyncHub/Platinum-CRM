@@ -38,11 +38,13 @@ export default function Sidebar() {
           {navigation.map((item) => {
             const Icon = item.icon;
             const isTeam = item.href === "/team";
+            const isApproval = item.href === "/approvals";
             const isActive =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
             if (isTeam && !canManageTeam) return null;
+            if (item.adminOnly && !isAdmin) return null;
 
             return (
               <Link
@@ -65,7 +67,7 @@ export default function Sidebar() {
                   />
                   <span>{item.title}</span>
                 </div>
-                {isTeam && isAdmin && (
+                {(isTeam || isApproval) && isAdmin && (
                   <span
                     className={cn(
                       "rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase",
@@ -74,7 +76,7 @@ export default function Sidebar() {
                         : "bg-purple-100 text-purple-700"
                     )}
                   >
-                    Super Admin
+                      {isApproval ? "Admin" : "Super Admin"}
                   </span>
                 )}
               </Link>

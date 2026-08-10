@@ -35,7 +35,18 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
 
   // Fetch all members assigned to this employee or general pool
   const allMembers = await prisma.member.findMany({
-    where: memberScopeFor(session?.user || { department }),
+    where: {
+      AND: [
+        memberScopeFor(session?.user || { department }),
+        {
+          OR: [
+            { approvalStatus: null },
+            { approvalStatus: { isSet: false } },
+            { approvalStatus: "approved" },
+          ],
+        },
+      ],
+    },
     include: {
       callLogs: {
         orderBy: { date: "desc" },

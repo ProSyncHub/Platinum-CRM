@@ -2,23 +2,18 @@ import { prisma } from "@/lib/db";
 import {
   getMembershipStatus,
   PLATINUM_STAGES,
-  formatINR,
-  parseSalesValue,
   getContactAttentionStatus,
   getMediumMeta,
 } from "@/lib/membershipUtils";
 import KpiCard from "@/components/dashboard/KpiCard";
 import AttentionTable from "@/components/dashboard/AttentionTable";
-import PendingQueryQueue from "@/components/dashboard/PendingQueryQueue";
 import PartnerServicePipelineSummary from "@/components/dashboard/PartnerServicePipelineSummary";
 import Link from "next/link";
 import {
   Users,
   AlertTriangle,
   PhoneCall,
-  Clock,
   Briefcase,
-  TrendingUp,
   Layers,
   Sparkles,
   ArrowRight,
@@ -26,23 +21,26 @@ import {
   Video,
   Mail,
   Flame,
-  CheckCircle2,
 } from "lucide-react";
 
 export default async function ManagerDashboard() {
-  const [members, pendingQueries, activeServiceCount, recentServiceReferrals] = await Promise.all([
+  const [members, pendingQueryCount, activeServiceCount, recentServiceReferrals] = await Promise.all([
     prisma.member.findMany({
+      where: {
+        OR: [
+          { approvalStatus: null },
+          { approvalStatus: { isSet: false } },
+          { approvalStatus: "approved" },
+        ],
+      },
       include: {
         callLogs: {
           orderBy: { date: "desc" },
         },
       },
     }),
-    prisma.queryTransfer.findMany({
+    prisma.queryTransfer.count({
       where: { status: "pending" },
-      include: { member: { select: { fullName: true, memberCode: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 12,
     }),
     prisma.memberServiceReferral.count({
       where: { status: { notIn: ["completed", "cancelled"] } },
@@ -62,10 +60,7 @@ export default async function ManagerDashboard() {
   let platinumCount = 0;
   let pnpCount = 0;
   let activeCount = 0;
-  let expiringSoonCount = 0;
-  let expiredCount = 0;
   let urgentFollowups = 0;
-  let totalRevenue = 0;
 
   const stageCounts: Record<string, number> = {
     onboarding: 0,
@@ -86,7 +81,12 @@ export default async function ManagerDashboard() {
   };
 
   const execCounts: Record<string, number> = {};
-  const allLogs: any[] = [];
+  type ManagerLog = (typeof members)[number]["callLogs"][number] & {
+    memberId: string;
+    memberName: string;
+    memberCode: string | null;
+  };
+  const allLogs: ManagerLog[] = [];
 
   for (const m of members) {
     const isPnp = (m.programType || "").toLowerCase().includes("pnp") || m.memberCode?.startsWith("PNP");
@@ -99,8 +99,6 @@ export default async function ManagerDashboard() {
     if (status.status === "Active" || status.status === "Expiring Soon") {
       activeCount++;
     }
-    if (status.isExpiringSoon) expiringSoonCount++;
-    if (status.isExpired) expiredCount++;
     if (contactStatus.urgency === "urgent" || contactStatus.urgency === "due_soon") {
       urgentFollowups++;
     }
@@ -129,8 +127,6 @@ export default async function ManagerDashboard() {
         }
       }
     }
-
-    totalRevenue += m.salesAmount || parseSalesValue(m.salesData);
   }
 
   // Sort logs by date descending
@@ -183,13 +179,11 @@ export default async function ManagerDashboard() {
           icon={Flame}
         />
         <KpiCard
-          title="Total Interactions Logged"
-          value={totalInteractions}
-          icon={PhoneCall}
+          title="Unresolved Queries"
+          value={pendingQueryCount}
+          icon={AlertTriangle}
         />
       </div>
-
-      <PendingQueryQueue queries={pendingQueries} />
 
       <PartnerServicePipelineSummary
         activeCount={activeServiceCount}

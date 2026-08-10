@@ -7,6 +7,13 @@ import AttentionTableClient from "./AttentionTableClient";
 
 export default async function AttentionTable() {
   const members = await prisma.member.findMany({
+    where: {
+      OR: [
+        { approvalStatus: null },
+        { approvalStatus: { isSet: false } },
+        { approvalStatus: "approved" },
+      ],
+    },
     take: 60,
     orderBy: { updatedAt: "desc" },
     include: {

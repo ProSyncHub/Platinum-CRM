@@ -8,6 +8,7 @@ import {
   normalizeCommunicationMedium,
   type MediumId,
 } from "@/lib/membershipUtils";
+import { syncMemberBackground } from "@/lib/memberBackground";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const VALID_MEDIA = new Set<MediumId>([
@@ -144,6 +145,8 @@ export async function updateCommunicationLog(input: {
       },
     });
   }
+
+  await syncMemberBackground(existingLog.memberId);
 
   revalidatePath(`/members/${existingLog.memberId}`);
   revalidatePath("/members");

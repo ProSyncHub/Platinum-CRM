@@ -1,19 +1,54 @@
 "use client";
 
 import { useState } from "react";
-import { X, Edit3, Calendar, Phone, Mail, MapPin, DollarSign, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { X, Edit3, DollarSign } from "lucide-react";
 import { updateMember, toggleMemberHold, deleteOrArchiveMember } from "@/app/actions/memberActions";
 import { toast } from "sonner";
 
 interface EditMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  member: any;
+  member: EditableMember;
   onSuccess: () => void;
   executives?: string[];
   isAdmin?: boolean;
   canManagePayments?: boolean;
-  programs?: any[];
+  programs?: ProgramOption[];
+}
+
+type HealthStatus = "healthy" | "needs_attention" | "warning" | "critical";
+type PaymentStatus = "paid" | "partial" | "unpaid" | "unknown";
+
+interface EditableMember {
+  id: string;
+  memberCode: string;
+  fullName: string;
+  programType?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  state?: string | null;
+  plan?: string | null;
+  enrollingDate?: string | Date | null;
+  endDate?: string | Date | null;
+  allotedTo?: string | null;
+  businessType?: string | null;
+  brandCollaborations?: string | null;
+  salesData?: string | null;
+  budgetAvailable?: string | null;
+  healthStatus?: HealthStatus | null;
+  paymentStatus?: PaymentStatus | null;
+  paymentNotes?: string | null;
+  notes?: string | null;
+  activeStatus: string;
+}
+
+interface ProgramOption {
+  name: string;
+  codePrefix: string;
+  icon?: string | null;
+  badgeColor?: string | null;
 }
 
 export default function EditMemberModal({
@@ -41,7 +76,6 @@ export default function EditMemberModal({
     "Tushar Panchal",
     "Hemant Bhandari",
   ],
-  isAdmin = false,
   canManagePayments = false,
   programs = [
     { name: "Platinum", codePrefix: "PLT", icon: "👑", badgeColor: "amber" },
@@ -71,7 +105,6 @@ export default function EditMemberModal({
     healthStatus: member?.healthStatus || "healthy",
     paymentStatus: member?.paymentStatus || "paid",
     paymentNotes: member?.paymentNotes || "",
-    notes: member?.notes || "",
   });
   const [loading, setLoading] = useState(false);
 
@@ -354,7 +387,7 @@ export default function EditMemberModal({
               </label>
               <select
                 value={formData.healthStatus}
-                onChange={(e: any) => setFormData({ ...formData, healthStatus: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, healthStatus: e.target.value as HealthStatus })}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:border-amber-500 focus:bg-white font-medium"
               >
                 <option value="healthy">Healthy (Active & On Track)</option>
@@ -382,7 +415,7 @@ export default function EditMemberModal({
                   <select
                     id="payment-status"
                     value={formData.paymentStatus}
-                    onChange={(e) => setFormData({ ...formData, paymentStatus: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, paymentStatus: e.target.value as PaymentStatus })}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-900 focus:border-amber-500 focus:outline-none"
                   >
                     <option value="paid">Paid in full</option>
@@ -436,15 +469,21 @@ export default function EditMemberModal({
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Member Notes & Background
-            </label>
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+            <div className="mb-2">
+              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Automated Member Notes & Background
+              </label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Built automatically from the latest verified communication and each department&apos;s latest status. Update the journey instead of editing this summary.
+              </p>
+            </div>
             <textarea
-              rows={3}
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:border-amber-500 focus:bg-white"
+              rows={9}
+              readOnly
+              aria-readonly="true"
+              value={member.notes || "No verified communication or department update has been recorded yet."}
+              className="w-full resize-y rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 font-mono text-xs leading-5 text-slate-700 outline-none"
             />
           </div>
 

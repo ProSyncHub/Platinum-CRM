@@ -9,28 +9,33 @@ import {
   Briefcase,
   PhoneCall,
   ArrowRight,
-  TrendingUp,
+  AlertTriangle,
   Building,
   Sparkles,
   Handshake,
 } from "lucide-react";
 import { getAllPrograms } from "@/app/actions/programActions";
 import AdminProgramManager from "@/components/programs/AdminProgramManager";
-import PendingQueryQueue from "@/components/dashboard/PendingQueryQueue";
 import PartnerServicePipelineSummary from "@/components/dashboard/PartnerServicePipelineSummary";
 
 export default async function AdminDashboard() {
   const { programs } = await getAllPrograms();
   // Fetch high-level statistics for Admin
-  const [members, totalCallLogs, pendingQueries, activeServiceCount, recentServiceReferrals] =
+  const [members, totalCallLogs, pendingQueryCount, activeServiceCount, recentServiceReferrals, pendingRegistrations] =
     await Promise.all([
-      prisma.member.findMany({ select: { programType: true, memberCode: true } }),
+      prisma.member.findMany({
+        where: {
+          OR: [
+            { approvalStatus: null },
+            { approvalStatus: { isSet: false } },
+            { approvalStatus: "approved" },
+          ],
+        },
+        select: { programType: true, memberCode: true },
+      }),
       prisma.callLog.count(),
-      prisma.queryTransfer.findMany({
+      prisma.queryTransfer.count({
         where: { status: "pending" },
-        include: { member: { select: { fullName: true, memberCode: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 12,
       }),
       prisma.memberServiceReferral.count({
         where: { status: { notIn: ["completed", "cancelled"] } },
@@ -44,6 +49,7 @@ export default async function AdminDashboard() {
         orderBy: { updatedAt: "desc" },
         take: 4,
       }),
+      prisma.member.count({ where: { approvalStatus: "pending" } }),
     ]);
 
   const activeUsers = await prisma.user.count({ where: { active: true } });
@@ -117,6 +123,16 @@ export default async function AdminDashboard() {
         </div>
       </div>
 
+      {pendingRegistrations > 0 && (
+        <Link
+          href="/approvals"
+          className="flex items-center justify-between gap-4 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-950 transition hover:bg-violet-100"
+        >
+          <span><strong>{pendingRegistrations} new registration{pendingRegistrations === 1 ? "" : "s"}</strong> waiting for Super Admin approval.</span>
+          <span className="inline-flex items-center gap-1 font-bold">Review <ArrowRight className="h-4 w-4" /></span>
+        </Link>
+      )}
+
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -137,12 +153,10 @@ export default async function AdminDashboard() {
         />
         <KpiCard
           title="Unresolved Queries"
-          value={pendingQueries.length}
-          icon={TrendingUp}
+          value={pendingQueryCount}
+          icon={AlertTriangle}
         />
       </div>
-
-      <PendingQueryQueue queries={pendingQueries} />
 
       <PartnerServicePipelineSummary
         activeCount={activeServiceCount}
