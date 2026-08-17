@@ -16,14 +16,43 @@ export default async function MemberJourneyPage({ params }: Props) {
   const session = await getServerSession(authOptions);
   if (!session?.user) notFound();
   const role = session.user.role?.trim().toLowerCase() || "employee";
-  const isAdmin = role === "admin" || role === "superadmin";
 
-  const [memberResult, activeUsers] = await Promise.all([
+  const [memberResult, activeUsers, oneOnOneSessions] = await Promise.all([
     getMemberById(id),
     prisma.user.findMany({
       where: { active: true },
       select: { id: true, name: true, email: true, department: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
+    }),
+    prisma.oneOnOneSession.findMany({
+      where: { memberId: id },
+      orderBy: [{ sessionNumber: "asc" }, { sequence: "desc" }],
+      select: {
+        id: true,
+        sessionNumber: true,
+        sequence: true,
+        status: true,
+        scheduledStart: true,
+        plannedDuration: true,
+        actualStart: true,
+        actualEnd: true,
+        verifiedMinutes: true,
+        attendanceStatus: true,
+        attendanceMatchMethod: true,
+        memberQuestions: true,
+        preparationNotes: true,
+        coordinatorUserId: true,
+        coordinatorName: true,
+        coordinatorEmail: true,
+        zoomMeetingId: true,
+        joinUrl: true,
+        transcriptStatus: true,
+        aiStatus: true,
+        aiSummary: true,
+        lastError: true,
+        cancellationReason: true,
+        completedAt: true,
+      },
     }),
   ]);
 
@@ -55,7 +84,8 @@ export default async function MemberJourneyPage({ params }: Props) {
         department: session.user.department || "operations",
       }}
       departments={departments}
-      contactStaffOptions={isAdmin ? activeUsers : []}
+      contactStaffOptions={activeUsers}
+      oneOnOneSessions={JSON.parse(JSON.stringify(oneOnOneSessions))}
     />
   );
 }

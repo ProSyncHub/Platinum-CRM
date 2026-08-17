@@ -38,6 +38,8 @@ export const FOLLOW_UP_STATUSES = {
 
 export type FollowUpPriority = keyof typeof FOLLOW_UP_PRIORITIES;
 export type FollowUpStatus = keyof typeof FOLLOW_UP_STATUSES;
+export type FollowUpSourceType = "manual" | "communication" | "transfer";
+export type FollowUpAssignmentType = "self" | "transferred";
 
 export interface AssignableStaffView {
   id: string;
@@ -55,6 +57,10 @@ export interface FollowUpTaskView {
   priority: string;
   status: string;
   dueAt: string;
+  sourceType: string;
+  assignmentType: string;
+  sourceCallLogId?: string | null;
+  sourceTransferId?: string | null;
   assignedToUser: string;
   assignedToName: string;
   assignedToEmail: string;

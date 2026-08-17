@@ -23,10 +23,14 @@ export default async function MemberDetailsPage({ params }: Props) {
   const isSuperAdmin = ["admin", "superadmin"].includes(
     session?.user?.role?.trim().toLowerCase() || "",
   );
-  const [{ success, member }, serviceResult, contactStaffOptions] = await Promise.all([
+  const canManageOneOnOnes =
+    isSuperAdmin ||
+    session?.user?.role?.trim().toLowerCase() === "manager" ||
+    session?.user?.department?.trim().toLowerCase() === "management";
+  const [{ success, member }, serviceResult, contactStaffOptions, oneOnOneSessions] = await Promise.all([
     getMemberById(id),
     getServicePartners(),
-    isSuperAdmin
+    canManageOneOnOnes
       ? prisma.user.findMany({
           where: { active: true },
           select: {
@@ -39,6 +43,36 @@ export default async function MemberDetailsPage({ params }: Props) {
           orderBy: [{ department: "asc" }, { name: "asc" }],
         })
       : Promise.resolve([]),
+    prisma.oneOnOneSession.findMany({
+      where: { memberId: id },
+      orderBy: [{ sessionNumber: "asc" }, { sequence: "desc" }],
+      select: {
+        id: true,
+        sessionNumber: true,
+        sequence: true,
+        status: true,
+        scheduledStart: true,
+        plannedDuration: true,
+        actualStart: true,
+        actualEnd: true,
+        verifiedMinutes: true,
+        attendanceStatus: true,
+        attendanceMatchMethod: true,
+        memberQuestions: true,
+        preparationNotes: true,
+        coordinatorUserId: true,
+        coordinatorName: true,
+        coordinatorEmail: true,
+        zoomMeetingId: true,
+        joinUrl: true,
+        transcriptStatus: true,
+        aiStatus: true,
+        aiSummary: true,
+        lastError: true,
+        cancellationReason: true,
+        completedAt: true,
+      },
+    }),
   ]);
 
   if (!success || !member) {
@@ -51,8 +85,10 @@ export default async function MemberDetailsPage({ params }: Props) {
       userRole={session?.user?.role}
       userDepartment={session?.user?.department}
       currentUserId={session?.user?.id}
+      currentUserName={session?.user?.name || "Staff Member"}
       availableServicePartners={serviceResult.partners || []}
       contactStaffOptions={contactStaffOptions}
+      oneOnOneSessions={JSON.parse(JSON.stringify(oneOnOneSessions))}
     />
   );
 }

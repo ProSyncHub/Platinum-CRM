@@ -11,6 +11,7 @@ import {
 import { memberScopeFor, normalizeDepartment } from "@/lib/authorization";
 import KpiCard from "@/components/dashboard/KpiCard";
 import Link from "next/link";
+import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel";
 import {
   Users,
   PhoneCall,
@@ -141,6 +142,8 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
           icon={SendHorizontal}
         />
       </div>
+
+      <FollowUpOverviewPanel />
 
       {/* Transferred Queries to this Department */}
       {pendingQueries.length > 0 && (

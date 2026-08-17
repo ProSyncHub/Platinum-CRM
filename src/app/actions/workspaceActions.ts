@@ -12,6 +12,10 @@ import {
 import { generateMemberCode, type MediumId } from "@/lib/membershipUtils";
 import { syncMemberBackground } from "@/lib/memberBackground";
 import type { Prisma } from "@prisma/client";
+import {
+  prepareFollowUpAssignment,
+  saveFollowUpAssignment,
+} from "@/lib/followUpTasks.server";
 
 const ADMIN_ROLES = new Set(["admin", "superadmin"]);
 const VALID_MEDIA = new Set<MediumId>([
@@ -32,6 +36,7 @@ const VALID_UPDATE_STATUSES = new Set([
   "completed",
   "blocked",
 ]);
+const VALID_PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
 
 const MEMBER_SEARCH_SELECT = {
   id: true,
@@ -159,6 +164,7 @@ function refreshMemberWorkspace(memberId: string) {
   revalidatePath(`/members/${memberId}`);
   revalidatePath("/members");
   revalidatePath("/dashboard");
+  revalidatePath("/followups");
   revalidatePath("/approvals");
 }
 
@@ -452,6 +458,8 @@ export async function transferWithCommunication(
   memberId: string,
   data: {
     toDepartment: string;
+    assignedToUser: string;
+    dueAt: string;
     reason: string;
     priority: "low" | "medium" | "high" | "urgent";
     medium: MediumId;
@@ -466,31 +474,56 @@ export async function transferWithCommunication(
     return { success: false, error: "You do not have access to this member." };
   }
 
-  const toDepartment = normalizeDepartment(data.toDepartment);
+  const requestedDepartment = clean(data.toDepartment);
+  const toDepartment = normalizeDepartment(requestedDepartment);
   const fromDepartment = normalizeDepartment(session.user.department);
   const reason = clean(data.reason);
   const notes = clean(data.communicationNotes);
   const outcome = clean(data.outcome);
-  if (!toDepartment || !reason || !notes || !outcome) {
+  if (!requestedDepartment || !reason || !notes || !outcome) {
     return { success: false, error: "Team, issue, outcome, and communication notes are required." };
+  }
+  if (reason.length > 2000 || notes.length > 4000 || outcome.length > 160) {
+    return { success: false, error: "Transfer details are too long." };
+  }
+  if (!VALID_PRIORITIES.has(data.priority)) {
+    return { success: false, error: "Choose a valid transfer priority." };
   }
   if (!VALID_MEDIA.has(data.medium)) {
     return { success: false, error: "Choose a valid communication medium." };
   }
 
+  const preparedFollowUp = await prepareFollowUpAssignment(
+    memberId,
+    {
+      assignedToUser: data.assignedToUser,
+      dueAt: data.dueAt,
+      priority: data.priority,
+      title: `Transferred follow-up: ${outcome}`,
+      instructions: reason,
+    },
+    session.user,
+    { requiredDepartment: toDepartment, allowCrossDepartment: true },
+  );
+  if (!preparedFollowUp.success) return preparedFollowUp;
+
   try {
     const now = new Date();
-    await prisma.queryTransfer.create({
+    const transfer = await prisma.queryTransfer.create({
       data: {
         memberId,
         fromDepartment,
         toDepartment,
+        assignedToUser: preparedFollowUp.assignee.id,
+        assignedToName: preparedFollowUp.assignee.name,
+        assignedToEmail: preparedFollowUp.assignee.email,
         reason,
         priority: data.priority,
         status: "pending",
       },
+      select: { id: true },
     });
-    await prisma.callLog.create({
+    const callLog = await prisma.callLog.create({
       data: {
         memberId,
         date: now,
@@ -503,6 +536,7 @@ export async function transferWithCommunication(
         staffEmail: session.user.email || "",
         staffDepartment: fromDepartment,
       },
+      select: { id: true },
     });
     await prisma.member.update({
       where: { id: memberId },
@@ -511,6 +545,16 @@ export async function transferWithCommunication(
         lastContactMedium: data.medium,
         lastContactStaff: session.user.name || "Staff Member",
       },
+    });
+
+    await saveFollowUpAssignment({
+      memberId,
+      actor: session.user,
+      prepared: preparedFollowUp,
+      sourceType: "transfer",
+      assignmentType: "transferred",
+      sourceCallLogId: callLog.id,
+      sourceTransferId: transfer.id,
     });
 
     await syncMemberBackground(memberId);

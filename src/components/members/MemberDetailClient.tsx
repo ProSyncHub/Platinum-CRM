@@ -38,6 +38,9 @@ import EditMemberModal from "./EditMemberModal";
 import ResolveQueryModal from "./ResolveQueryModal";
 import EditCallLogModal from "./EditCallLogModal";
 import MemberServicesCard from "@/components/services/MemberServicesCard";
+import OneOnOneSessionsPanel, {
+  type OneOnOneSessionView,
+} from "@/components/workspace/OneOnOneSessionsPanel";
 import type { ServicePartnerView } from "@/lib/servicePartners";
 import type { AssignableStaffView } from "@/lib/followups";
 import {
@@ -53,8 +56,10 @@ interface MemberDetailClientProps {
   userRole?: string;
   userDepartment?: string;
   currentUserId?: string;
+  currentUserName?: string;
   availableServicePartners?: ServicePartnerView[];
   contactStaffOptions?: AssignableStaffView[];
+  oneOnOneSessions?: OneOnOneSessionView[];
 }
 
 const CRM_TIME_ZONE = "Asia/Kolkata";
@@ -90,8 +95,10 @@ export default function MemberDetailClient({
   userRole = "employee",
   userDepartment = "operations",
   currentUserId,
+  currentUserName = "Staff Member",
   availableServicePartners = [],
   contactStaffOptions = [],
+  oneOnOneSessions = [],
 }: MemberDetailClientProps) {
   const [member, setMember] = useState(initialMember);
   const normalizedRole = userRole.trim().toLowerCase();
@@ -358,6 +365,24 @@ export default function MemberDetailClient({
           </div>
         </div>
       </div>
+
+      <OneOnOneSessionsPanel
+        member={{
+          id: member.id,
+          fullName: member.fullName,
+          memberCode: member.memberCode,
+          programType: member.programType,
+          oneOnOneSessions: member.oneOnOneSessions || 0,
+        }}
+        user={{
+          id: currentUserId || "",
+          name: currentUserName,
+          role: userRole,
+          department: userDepartment,
+        }}
+        sessions={oneOnOneSessions}
+        staffOptions={contactStaffOptions}
+      />
 
       {/* Profile Metrics & Details Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

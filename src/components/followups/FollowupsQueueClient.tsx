@@ -99,6 +99,8 @@ export default function FollowupsQueueClient({
   const [editingTask, setEditingTask] = useState<FollowUpTaskView | null>(null);
   const [taskStatusFilter, setTaskStatusFilter] = useState("open");
   const [taskOwnerFilter, setTaskOwnerFilter] = useState("all");
+  const [taskAssignmentFilter, setTaskAssignmentFilter] = useState("all");
+  const [taskDepartmentFilter, setTaskDepartmentFilter] = useState("all");
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 50;
@@ -189,6 +191,17 @@ export default function FollowupsQueueClient({
     (task) => new Date(task.dueAt).getTime() < referenceTime,
   );
   const completedTasks = initialTasks.filter((task) => task.status === "completed");
+  const transferredOpenTasks = openTasks.filter(
+    (task) =>
+      task.sourceType === "transfer" || task.assignmentType === "transferred",
+  );
+  const taskDepartments = Array.from(
+    new Set(
+      initialTasks
+        .map((task) => task.assignedToDepartment)
+        .filter(Boolean),
+    ),
+  ).sort();
 
   const filteredTasks = initialTasks.filter((task) => {
     if (
@@ -202,6 +215,19 @@ export default function FollowupsQueueClient({
     if (taskOwnerFilter !== "all" && taskOwnerFilter !== "mine" && task.assignedToUser !== taskOwnerFilter) {
       return false;
     }
+    if (
+      taskAssignmentFilter === "transferred" &&
+      task.sourceType !== "transfer" &&
+      task.assignmentType !== "transferred"
+    ) return false;
+    if (
+      taskAssignmentFilter === "self" &&
+      task.assignmentType !== "self"
+    ) return false;
+    if (
+      taskDepartmentFilter !== "all" &&
+      task.assignedToDepartment.toLowerCase() !== taskDepartmentFilter.toLowerCase()
+    ) return false;
     return true;
   });
 
@@ -273,11 +299,12 @@ export default function FollowupsQueueClient({
       </div>
 
       <section className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {[
             { label: "My Open Tasks", value: myOpenTasks.length, tone: "border-indigo-200 bg-indigo-50 text-indigo-800" },
             { label: "Team Open Tasks", value: openTasks.length, tone: "border-blue-200 bg-blue-50 text-blue-800" },
             { label: "Overdue Assignments", value: overdueTasks.length, tone: "border-red-200 bg-red-50 text-red-800" },
+            { label: "Transferred Open", value: transferredOpenTasks.length, tone: "border-violet-200 bg-violet-50 text-violet-800" },
             { label: "Completed", value: completedTasks.length, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
           ].map((item) => (
             <div key={item.label} className={`rounded-2xl border p-4 ${item.tone}`}>
@@ -311,6 +338,27 @@ export default function FollowupsQueueClient({
                 <option value="mine">Assigned to me</option>
                 {assignableStaff.map((person) => (
                   <option key={person.id} value={person.id}>{person.name}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter assigned follow-ups by assignment type"
+                value={taskAssignmentFilter}
+                onChange={(event) => setTaskAssignmentFilter(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="all">All assignment types</option>
+                <option value="self">Call again / self</option>
+                <option value="transferred">Transferred follow-ups</option>
+              </select>
+              <select
+                aria-label="Filter assigned follow-ups by department"
+                value={taskDepartmentFilter}
+                onChange={(event) => setTaskDepartmentFilter(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium capitalize focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="all">All departments</option>
+                {taskDepartments.map((department) => (
+                  <option key={department} value={department}>{department.replace(/_/g, " ")}</option>
                 ))}
               </select>
               <select
@@ -371,6 +419,18 @@ export default function FollowupsQueueClient({
                           </Link>
                           <p className="mt-0.5 font-mono text-[10px] text-slate-500">{task.member.memberCode}</p>
                           <p className="mt-1 font-semibold text-slate-700">{task.title}</p>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold uppercase ${
+                              task.assignmentType === "self"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-violet-100 text-violet-800"
+                            }`}>
+                              {task.assignmentType === "self" ? "Call again" : "Transferred"}
+                            </span>
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-600">
+                              From {task.sourceType}
+                            </span>
+                          </div>
                           {task.instructions && <p className="mt-0.5 max-w-[280px] truncate text-[10px] text-slate-500">{task.instructions}</p>}
                         </td>
                         <td className="px-3 py-3.5">
@@ -786,7 +846,7 @@ export default function FollowupsQueueClient({
           followupTaskId={activeFollowupTaskId}
           currentUserRole={currentUser.role}
           currentUserId={currentUser.id}
-          contactStaffOptions={currentUser.superAdmin ? assignableStaff : []}
+          contactStaffOptions={assignableStaff}
           onSuccess={() => window.location.reload()}
         />
       )}

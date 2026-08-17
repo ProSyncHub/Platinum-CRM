@@ -24,6 +24,11 @@ import {
   syncMemberBackground,
 } from "@/lib/memberBackground";
 import { buildMemberAiSource } from "@/lib/memberAi";
+import {
+  prepareFollowUpAssignment,
+  saveFollowUpAssignment,
+  type FollowUpAssignmentInput,
+} from "@/lib/followUpTasks.server";
 
 export interface MemberFilterOptions {
   search?: string;
@@ -764,7 +769,8 @@ export async function logCallForMember(
   escalationReason?: string,
   followupTaskId?: string,
   contactedByUserId?: string,
-  contactedAt?: string
+  contactedAt?: string,
+  followUpAssignment?: FollowUpAssignmentInput,
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -865,13 +871,24 @@ export async function logCallForMember(
       }
     }
 
+    const preparedFollowUp = followUpAssignment
+      ? await prepareFollowUpAssignment(
+          memberId,
+          followUpAssignment,
+          session.user,
+        )
+      : null;
+    if (preparedFollowUp && !preparedFollowUp.success) {
+      return preparedFollowUp;
+    }
+
     const previousLatestLog = await prisma.callLog.findFirst({
       where: { memberId },
       orderBy: { date: "desc" },
       select: { date: true },
     });
 
-    await prisma.callLog.create({
+    const callLog = await prisma.callLog.create({
       data: {
         memberId,
         date: interactionDate,
@@ -887,6 +904,7 @@ export async function logCallForMember(
         staffDepartment,
         staffUserId: staffUserId || null,
       },
+      select: { id: true },
     });
 
     const updateData: any = {};
@@ -904,14 +922,9 @@ export async function logCallForMember(
       updateData.nextConnectDate = new Date(nextConnectDate);
     }
 
-    // If medium was a Zoom 1-on-1 session and outcome was conducted/connected, increment session count
-    if (medium === "zoom" || medium === "meet" || outcome.toLowerCase().includes("1-on-1")) {
-      const currentMember = await prisma.member.findUnique({
-        where: { id: memberId },
-        select: { oneOnOneSessions: true },
-      });
-      updateData.oneOnOneSessions = (currentMember?.oneOnOneSessions || 0) + 1;
-    }
+    // The Platinum six-session entitlement is derived only from verified
+    // OneOnOneSession records. A manually logged Zoom/Meet communication must
+    // never consume a session by itself.
 
     await prisma.member.update({
       where: { id: memberId },
@@ -945,6 +958,16 @@ export async function logCallForMember(
       });
     }
 
+    if (preparedFollowUp?.success) {
+      await saveFollowUpAssignment({
+        memberId,
+        actor: session.user,
+        prepared: preparedFollowUp,
+        sourceType: "communication",
+        sourceCallLogId: callLog.id,
+      });
+    }
+
     await syncMemberBackground(memberId);
 
     revalidatePath(`/members/${memberId}`);
@@ -970,7 +993,8 @@ export async function transferQuery(
   reason: string,
   priority: "low" | "medium" | "high" | "urgent" = "medium",
   assignedToName?: string,
-  assignedToEmail?: string
+  assignedToEmail?: string,
+  dueAt?: string,
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -981,40 +1005,86 @@ export async function transferQuery(
     if (!(await canAccessMember(session.user, memberId))) {
       return { success: false, error: "You do not have access to this member." };
     }
-    await prisma.queryTransfer.create({
+    void assignedToName;
+    void assignedToEmail;
+    const requestedDepartment = toDepartment?.trim();
+    const cleanedReason = reason?.trim();
+    if (!requestedDepartment || !cleanedReason) {
+      return {
+        success: false,
+        error: "Choose a receiving department and explain the required action.",
+      };
+    }
+    if (cleanedReason.length > 2000) {
+      return { success: false, error: "Transfer instructions are too long." };
+    }
+    if (!assignedToUser || !dueAt) {
+      return {
+        success: false,
+        error: "Choose a specific receiving employee and follow-up time.",
+      };
+    }
+    const normalizedTarget = normalizeDepartment(requestedDepartment);
+    const preparedFollowUp = await prepareFollowUpAssignment(
+      memberId,
+      {
+        assignedToUser,
+        dueAt,
+        priority,
+        title: `Transferred follow-up for member`,
+        instructions: cleanedReason,
+      },
+      session.user,
+      { requiredDepartment: normalizedTarget, allowCrossDepartment: true },
+    );
+    if (!preparedFollowUp.success) return preparedFollowUp;
+
+    const transfer = await prisma.queryTransfer.create({
       data: {
         memberId,
-        fromDepartment,
-        toDepartment,
-        assignedToUser: assignedToUser || null,
-        assignedToName: assignedToName || null,
-        assignedToEmail: assignedToEmail || null,
+        fromDepartment: normalizeDepartment(session.user.department || fromDepartment),
+        toDepartment: normalizedTarget,
+        assignedToUser: preparedFollowUp.assignee.id,
+        assignedToName: preparedFollowUp.assignee.name,
+        assignedToEmail: preparedFollowUp.assignee.email,
         priority,
-        reason,
+        reason: cleanedReason,
         status: "pending",
       },
+      select: { id: true },
     });
 
     // Also record an entry in callLog so it appears on timeline
-    await prisma.callLog.create({
+    const callLog = await prisma.callLog.create({
       data: {
         memberId,
         date: new Date(),
         type: "outbound",
         medium: "internal",
-        outcome: `Transferred to ${toDepartment.toUpperCase()}`,
-        notes: `[Priority: ${priority.toUpperCase()}] Transferred query to ${toDepartment.toUpperCase()}${
-          assignedToName ? ` (Assigned: ${assignedToName})` : ""
-        }. Reason: ${reason}`,
+        outcome: `Transferred to ${normalizedTarget.toUpperCase()}`,
+        notes: `[Priority: ${priority.toUpperCase()}] Transferred query to ${normalizedTarget.toUpperCase()} (Assigned: ${preparedFollowUp.assignee.name}). Reason: ${cleanedReason}`,
         staffName: session.user.name || undefined,
         staffEmail: session.user.email || undefined,
-        staffDepartment: fromDepartment,
+        staffDepartment: normalizeDepartment(session.user.department || fromDepartment),
+        staffUserId: session.user.id || null,
       },
+      select: { id: true },
+    });
+
+    await saveFollowUpAssignment({
+      memberId,
+      actor: session.user,
+      prepared: preparedFollowUp,
+      sourceType: "transfer",
+      assignmentType: "transferred",
+      sourceCallLogId: callLog.id,
+      sourceTransferId: transfer.id,
     });
 
     revalidatePath(`/members/${memberId}`);
     revalidatePath("/members");
     revalidatePath("/dashboard");
+    revalidatePath("/followups");
 
     return { success: true };
   } catch (err: any) {
@@ -1080,9 +1150,24 @@ export async function resolveQueryTransfer(
       await syncMemberBackground(updated.memberId);
     }
 
+    await prisma.followUpTask.updateMany({
+      where: {
+        sourceTransferId: transferId,
+        status: { in: ["pending", "in_progress"] },
+      },
+      data: {
+        status: "completed",
+        completedAt: new Date(),
+        completedByUser: session.user.id || null,
+        completedByName: session.user.name || "Staff Member",
+        completionNotes: resolutionNotes,
+      },
+    });
+
     revalidatePath(`/members/${updated.memberId}`);
     revalidatePath("/members");
     revalidatePath("/dashboard");
+    revalidatePath("/followups");
 
     return { success: true };
   } catch (err: any) {
@@ -1098,9 +1183,6 @@ export async function getStaffDirectory() {
     const users = await prisma.user.findMany({
       where: {
         active: true,
-        ...(isElevatedViewer(session.user)
-          ? {}
-          : { department: { equals: normalizeDepartment(session.user.department), mode: "insensitive" } }),
       },
       select: {
         id: true,
@@ -1111,8 +1193,17 @@ export async function getStaffDirectory() {
       },
       orderBy: { name: "asc" },
     });
-    return { success: true, users };
+    return {
+      success: true,
+      users,
+      currentUser: {
+        id: session.user.id || "",
+        name: session.user.name || "Staff Member",
+        role: session.user.role || "employee",
+        department: session.user.department || "operations",
+      },
+    };
   } catch (err: any) {
-    return { success: false, users: [], error: err.message };
+    return { success: false, users: [], currentUser: null, error: err.message };
   }
 }

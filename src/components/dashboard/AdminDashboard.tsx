@@ -17,6 +17,7 @@ import {
 import { getAllPrograms } from "@/app/actions/programActions";
 import AdminProgramManager from "@/components/programs/AdminProgramManager";
 import PartnerServicePipelineSummary from "@/components/dashboard/PartnerServicePipelineSummary";
+import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel";
 
 export default async function AdminDashboard() {
   const { programs } = await getAllPrograms();
@@ -157,6 +158,8 @@ export default async function AdminDashboard() {
           icon={AlertTriangle}
         />
       </div>
+
+      <FollowUpOverviewPanel />
 
       <PartnerServicePipelineSummary
         activeCount={activeServiceCount}

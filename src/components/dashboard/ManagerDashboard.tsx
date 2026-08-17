@@ -8,6 +8,7 @@ import {
 import KpiCard from "@/components/dashboard/KpiCard";
 import AttentionTable from "@/components/dashboard/AttentionTable";
 import PartnerServicePipelineSummary from "@/components/dashboard/PartnerServicePipelineSummary";
+import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel";
 import Link from "next/link";
 import {
   Users,
@@ -184,6 +185,8 @@ export default async function ManagerDashboard() {
           icon={AlertTriangle}
         />
       </div>
+
+      <FollowUpOverviewPanel />
 
       <PartnerServicePipelineSummary
         activeCount={activeServiceCount}

@@ -98,6 +98,10 @@ export async function getFollowUpWorkspace() {
         priority: true,
         status: true,
         dueAt: true,
+        sourceType: true,
+        assignmentType: true,
+        sourceCallLogId: true,
+        sourceTransferId: true,
         assignedToUser: true,
         assignedToName: true,
         assignedToEmail: true,
@@ -153,6 +157,10 @@ export async function getFollowUpWorkspace() {
     success: true as const,
     tasks: tasks.map((task) => ({
       ...task,
+      sourceType: task.sourceType || "manual",
+      assignmentType:
+        task.assignmentType ||
+        (task.assignedToUser === task.createdByUser ? "self" : "transferred"),
       dueAt: task.dueAt.toISOString(),
       completedAt: task.completedAt?.toISOString() || null,
       createdAt: task.createdAt.toISOString(),
@@ -271,6 +279,9 @@ export async function createFollowUpTask(input: {
     instructions,
     priority: input.priority,
     dueAt,
+    sourceType: "manual",
+    assignmentType:
+      assignee.id === session.user.id ? "self" : "transferred",
     assignedToUser: assignee.id,
     assignedToName: assignee.name,
     assignedToEmail: assignee.email,
@@ -451,6 +462,8 @@ export async function updateFollowUpTask(input: {
       assignedToName: assignee.name,
       assignedToEmail: assignee.email,
       assignedToDepartment: assignee.department,
+      assignmentType:
+        assignee.id === session.user.id ? "self" : "transferred",
       dueAt,
       priority: input.priority,
       title: input.title?.trim().slice(0, 160) || `Follow up with ${task.member.fullName}`,

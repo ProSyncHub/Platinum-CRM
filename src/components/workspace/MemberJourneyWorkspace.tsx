@@ -20,6 +20,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import MemberAiBrief from "@/components/workspace/MemberAiBrief";
+import OneOnOneSessionsPanel, {
+  type OneOnOneSessionView,
+} from "@/components/workspace/OneOnOneSessionsPanel";
 import {
   DepartmentUpdateModal,
   QuickCommunicationModal,
@@ -36,6 +39,7 @@ interface MemberJourneyWorkspaceProps {
     email: string;
     department: string;
   }>;
+  oneOnOneSessions: OneOnOneSessionView[];
 }
 
 interface CallLogEntry {
@@ -57,6 +61,8 @@ interface TransferEntry {
   priority: string;
   status: string;
   reason: string;
+  assignedToName?: string | null;
+  assignedToEmail?: string | null;
 }
 
 interface DepartmentUpdateEntry {
@@ -78,6 +84,7 @@ interface WorkspaceMember {
   state?: string | null;
   memberCode: string;
   programType: string;
+  oneOnOneSessions: number;
   approvalStatus?: string | null;
   activeStatus: string;
   currentStage: string;
@@ -140,6 +147,7 @@ export default function MemberJourneyWorkspace({
   user,
   departments,
   contactStaffOptions,
+  oneOnOneSessions,
 }: MemberJourneyWorkspaceProps) {
   const router = useRouter();
   const [communicationOpen, setCommunicationOpen] = useState(false);
@@ -186,7 +194,7 @@ export default function MemberJourneyWorkspace({
       at: item.createdAt,
       title: `Transferred to ${titleCase(item.toDepartment)}`,
       body: item.reason,
-      meta: `${titleCase(item.priority)} priority · ${titleCase(item.status)}`,
+      meta: `${titleCase(item.priority)} priority · ${titleCase(item.status)}${item.assignedToName ? ` · Assigned to ${item.assignedToName}` : ""}`,
       department: item.fromDepartment,
     }));
     const updates: TimelineEntry[] = (member.departmentUpdates || []).map((item) => ({
@@ -278,6 +286,19 @@ export default function MemberJourneyWorkspace({
           detail={latestCall?.staffName ? `By ${latestCall.staffName}` : undefined}
         />
       </section>
+
+      <OneOnOneSessionsPanel
+        member={{
+          id: member.id,
+          fullName: member.fullName,
+          memberCode: member.memberCode,
+          programType: member.programType,
+          oneOnOneSessions: member.oneOnOneSessions || 0,
+        }}
+        user={user}
+        sessions={oneOnOneSessions}
+        staffOptions={contactStaffOptions}
+      />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div>
@@ -415,6 +436,7 @@ export default function MemberJourneyWorkspace({
         onClose={() => setTransferOpen(false)}
         member={member}
         departments={departments.filter((department) => department !== user.department.toLowerCase())}
+        staffOptions={contactStaffOptions}
         onSuccess={refresh}
       />
       <DepartmentUpdateModal
