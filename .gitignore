@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+/public/uploads/call-recordings/*
+!/public/uploads/call-recordings/.gitkeep
 
 # production
 /build

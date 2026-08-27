@@ -557,6 +557,29 @@ export default function MemberDetailClient({
                       <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">
                         {log.notes}
                       </p>
+                      {log.recordingUrl && (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Call recording</p>
+                          <audio controls preload="none" className="h-9 w-full" src={log.recordingUrl}>
+                            Your browser does not support audio playback.
+                          </audio>
+                        </div>
+                      )}
+                      {log.transcript && (
+                        <details className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                          <summary className="cursor-pointer font-bold text-slate-800">Transcript</summary>
+                          <p className="mt-2 whitespace-pre-wrap leading-5">{log.transcript}</p>
+                        </details>
+                      )}
+                      {log.aiSummary && (
+                        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950">
+                          <p className="font-bold">AI call note</p>
+                          <p className="mt-1">{log.aiSummary}</p>
+                          {log.aiConcern && <p className="mt-1"><b>Concern:</b> {log.aiConcern}</p>}
+                          {log.aiAction && <p className="mt-1"><b>Action:</b> {log.aiAction}</p>}
+                          {log.aiFollowUp && <p className="mt-1"><b>Follow-up:</b> {log.aiFollowUp}</p>}
+                        </div>
+                      )}
                       {log.editedAt && (
                         <p className="text-[10px] font-medium text-slate-400">
                           Corrected by {log.editedByName || "Super Admin"} · {formatCrmDateTime(log.editedAt)}

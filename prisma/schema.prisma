@@ -89,15 +89,15 @@ model Member {
   gstStatus       String?
   countryInterest String? // USA, Australia, UAE, UK, India
 
-  callLogs              CallLog[]
-  queryTransfers        QueryTransfer[]
-  serviceReferrals      MemberServiceReferral[]
-  followUpTasks         FollowUpTask[]
-  departmentUpdates     DepartmentUpdate[]
+  callLogs               CallLog[]
+  queryTransfers         QueryTransfer[]
+  serviceReferrals       MemberServiceReferral[]
+  followUpTasks          FollowUpTask[]
+  departmentUpdates      DepartmentUpdate[]
   oneOnOneSessionRecords OneOnOneSession[]
-  aiAnalysis            MemberAiAnalysis?
-  externalRegistrations ExternalRegistration[]
-  leads                 Lead[]
+  aiAnalysis             MemberAiAnalysis?
+  externalRegistrations  ExternalRegistration[]
+  leads                  Lead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -304,14 +304,60 @@ model CallLog {
 
   // External automation provenance. A Zoom-generated communication remains
   // linked to the verified 1-on-1 session that created it.
-  source             String? @default("manual") // manual, zoom_automation, webhook, import
-  externalReference  String?
-  oneOnOneSessionId  String? @db.ObjectId
+  source            String? @default("manual") // manual, zoom_automation, webhook, import
+  externalReference String?
+  oneOnOneSessionId String? @db.ObjectId
+
+  // Android companion / external communication metadata
+  phoneNumber       String?
+  normalizedPhone   String?
+  durationSeconds   Int?
+  deviceId          String?
+  deviceLabel       String?
+  simAccount        String?
+  recordingUrl      String?
+  recordingFileName String?
+  recordingMimeType String?
+  recordingStatus   String? // unavailable, pending, available, failed
+  transcript        String?
+  aiSummary         String?
+  aiConcern         String?
+  aiAction          String?
+  aiFollowUp        String?
 
   createdAt DateTime @default(now())
 
   @@index([oneOnOneSessionId])
   @@index([source, date])
+  @@index([source, externalReference])
+  @@index([normalizedPhone, date])
+}
+
+model UnmatchedMobileCall {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  externalReference String   @unique
+  phoneNumber       String
+  normalizedPhone   String
+  direction         String
+  startedAt         DateTime
+  durationSeconds   Int
+  employeeName      String
+  employeeEmail     String?
+  deviceId          String
+  deviceLabel       String
+  simAccount        String?
+  recordingUrl      String?
+  recordingFileName String?
+  recordingMimeType String?
+  recordingStatus   String
+  status            String   @default("pending") // pending, linked, ignored
+  linkedMemberId    String?  @db.ObjectId
+  linkedCallLogId   String?  @db.ObjectId
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([normalizedPhone, startedAt])
+  @@index([status, createdAt])
 }
 
 model OneOnOneSession {
@@ -324,13 +370,13 @@ model OneOnOneSession {
   status        String @default("scheduling") // scheduling, scheduled, started, processing, completed, review_required, cancelled, failed
 
   scheduledStart  DateTime
-  timezone        String @default("Asia/Calcutta")
-  plannedDuration Int    @default(60)
+  timezone        String    @default("Asia/Calcutta")
+  plannedDuration Int       @default(60)
   actualStart     DateTime?
   actualEnd       DateTime?
   verifiedMinutes Int?
 
-  attendanceStatus     String  @default("pending") // pending, processing, verified, review_required, unavailable
+  attendanceStatus      String  @default("pending") // pending, processing, verified, review_required, unavailable
   attendanceMatchMethod String?
   attendanceJson        String?
 
@@ -343,32 +389,32 @@ model OneOnOneSession {
   coordinatorEmail      String
   coordinatorDepartment String
 
-  zoomMeetingId     String?
-  zoomMeetingUuid   String?
-  zoomHostUserId    String
-  zoomHostName      String?
-  zoomHostEmail     String?
-  joinUrl           String?
+  zoomMeetingId   String?
+  zoomMeetingUuid String?
+  zoomHostUserId  String
+  zoomHostName    String?
+  zoomHostEmail   String?
+  joinUrl         String?
 
   transcriptStatus String  @default("pending") // pending, processing, ready, unavailable, failed
   transcriptText   String?
   transcriptHash   String?
   recordingJson    String?
 
-  aiStatus      String  @default("pending") // pending, processing, ready, review_required, failed, skipped
-  aiSummary     String?
+  aiStatus       String  @default("pending") // pending, processing, ready, review_required, failed, skipped
+  aiSummary      String?
   aiAnalysisJson String?
-  aiSourceHash  String?
-  aiProvider    String?
-  aiModel       String?
+  aiSourceHash   String?
+  aiProvider     String?
+  aiModel        String?
 
-  callLogId     String? @db.ObjectId
-  lastError     String?
-  processingAttempts Int @default(0)
-  lastProcessedAt DateTime?
-  completedAt   DateTime?
-  cancelledAt   DateTime?
-  cancellationReason String?
+  callLogId             String?   @db.ObjectId
+  lastError             String?
+  processingAttempts    Int       @default(0)
+  lastProcessedAt       DateTime?
+  completedAt           DateTime?
+  cancelledAt           DateTime?
+  cancellationReason    String?
   rescheduleHistoryJson String?
 
   createdByUser  String? @db.ObjectId
@@ -393,16 +439,16 @@ model OneOnOneAttendanceSegment {
   sessionId String          @db.ObjectId
   session   OneOnOneSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  participantKey   String
-  participantId    String?
+  participantKey    String
+  participantId     String?
   participantUserId String?
-  participantName  String
-  participantEmail String?
-  participantRole  String @default("other") // host, member, other
+  participantName   String
+  participantEmail  String?
+  participantRole   String   @default("other") // host, member, other
   joinAt            DateTime
   leaveAt           DateTime
   durationSeconds   Int
-  rawJson            String?
+  rawJson           String?
 
   createdAt DateTime @default(now())
 
@@ -414,16 +460,16 @@ model ZoomWebhookEvent {
   id       String @id @default(auto()) @map("_id") @db.ObjectId
   eventKey String @unique
 
-  eventType      String
-  eventTimestamp DateTime?
-  zoomMeetingId  String?
+  eventType       String
+  eventTimestamp  DateTime?
+  zoomMeetingId   String?
   zoomMeetingUuid String?
-  sessionId      String? @db.ObjectId
-  payloadJson    String
-  status         String  @default("received") // received, processing, processed, ignored, failed
-  attempts       Int     @default(0)
-  lastError      String?
-  processedAt    DateTime?
+  sessionId       String?   @db.ObjectId
+  payloadJson     String
+  status          String    @default("received") // received, processing, processed, ignored, failed
+  attempts        Int       @default(0)
+  lastError       String?
+  processedAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
