@@ -7,10 +7,13 @@ import {
   Search,
   ExternalLink,
   Edit2,
+  Trash2,
 } from "lucide-react";
 import { getMediumMeta, getProgramMeta } from "@/lib/membershipUtils";
 import EditCallLogModal from "@/components/members/EditCallLogModal";
 import type { AssignableStaffView } from "@/lib/followups";
+import { deleteCommunicationLog } from "@/app/actions/communicationActions";
+import { toast } from "sonner";
 
 interface CallsExplorerLog {
   id: string;
@@ -44,6 +47,8 @@ interface CallsExplorerClientProps {
     connectedRate: number;
   };
   currentUserRole?: string;
+  currentUserId?: string;
+  currentUserDepartment?: string;
   contactStaffOptions?: AssignableStaffView[];
 }
 
@@ -51,6 +56,8 @@ export default function CallsExplorerClient({
   initialLogs,
   stats,
   currentUserRole,
+  currentUserId = "",
+  currentUserDepartment = "operations",
   contactStaffOptions = [],
 }: CallsExplorerClientProps) {
   const [search, setSearch] = useState("");
@@ -58,10 +65,24 @@ export default function CallsExplorerClient({
   const [selectedProgram, setSelectedProgram] = useState("all");
   const [selectedOutcome, setSelectedOutcome] = useState("all");
   const [selectedType, setSelectedType] = useState("all");
+  const [selectedStaff, setSelectedStaff] = useState("all");
   const [editingLog, setEditingLog] = useState<CallsExplorerLog | null>(null);
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
   const isSuperAdmin = ["admin", "superadmin"].includes(
     currentUserRole?.trim().toLowerCase() || "",
   );
+  const isManager = currentUserRole?.trim().toLowerCase() === "manager";
+  const normalizedDepartment = currentUserDepartment.trim().toLowerCase();
+  const canManageLog = (log: CallsExplorerLog) => {
+    if (isSuperAdmin) return true;
+    if (
+      isManager &&
+      log.staffDepartment?.trim().toLowerCase() === normalizedDepartment
+    ) {
+      return true;
+    }
+    return Boolean(currentUserId && log.staffUserId === currentUserId);
+  };
 
   const filteredLogs = useMemo(() => {
     return initialLogs.filter((log) => {
@@ -113,9 +134,68 @@ export default function CallsExplorerClient({
         if (log.type !== selectedType) return false;
       }
 
+      if (selectedStaff === "mine" && log.staffUserId !== currentUserId) return false;
+      if (
+        selectedStaff !== "all" &&
+        selectedStaff !== "mine" &&
+        log.staffUserId !== selectedStaff
+      ) {
+        return false;
+      }
+
       return true;
     });
-  }, [initialLogs, search, selectedMedium, selectedProgram, selectedOutcome, selectedType]);
+  }, [
+    initialLogs,
+    search,
+    selectedMedium,
+    selectedProgram,
+    selectedOutcome,
+    selectedType,
+    selectedStaff,
+    currentUserId,
+  ]);
+
+  const staffFilters = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          initialLogs
+            .filter((log) => log.staffUserId && log.staffName)
+            .map((log) => [
+              log.staffUserId as string,
+              {
+                id: log.staffUserId as string,
+                name: log.staffName as string,
+                department: log.staffDepartment || "",
+              },
+            ]),
+        ).values(),
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+    [initialLogs],
+  );
+
+  async function deleteLog(log: CallsExplorerLog) {
+    const confirmed = window.confirm(
+      `Delete this communication log for ${log.member?.fullName || "this member"}?`,
+    );
+    if (!confirmed) return;
+
+    setDeletingLogId(log.id);
+    try {
+      const result = await deleteCommunicationLog(log.id);
+      if (!result.success) {
+        toast.error(result.error || "Could not delete communication.");
+        return;
+      }
+      toast.success("Communication log deleted.");
+      window.location.reload();
+    } catch {
+      toast.error("Could not delete communication.");
+    } finally {
+      setDeletingLogId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -178,7 +258,7 @@ export default function CallsExplorerClient({
 
       {/* Filter Toolbar */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200/90 shadow-2xs space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Search Box */}
           <div className="relative lg:col-span-2">
             <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
@@ -232,6 +312,23 @@ export default function CallsExplorerClient({
               <option value="scheduled">🟡 Next Call Scheduled</option>
             </select>
           </div>
+
+          <div>
+            <select
+              value={selectedStaff}
+              onChange={(e) => setSelectedStaff(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs font-medium focus:outline-none focus:border-amber-500 focus:bg-white cursor-pointer transition-colors"
+            >
+              <option value="all">All staff</option>
+              <option value="mine">My logs</option>
+              {staffFilters.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.name}
+                  {staff.department ? ` · ${staff.department}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Results Counter */}
@@ -240,7 +337,7 @@ export default function CallsExplorerClient({
             Showing <span className="font-bold text-slate-900">{filteredLogs.length}</span> of{" "}
             <span className="font-bold text-slate-900">{initialLogs.length}</span> communication records
           </div>
-          {(search || selectedMedium !== "all" || selectedProgram !== "all" || selectedOutcome !== "all") && (
+          {(search || selectedMedium !== "all" || selectedProgram !== "all" || selectedOutcome !== "all" || selectedStaff !== "all") && (
             <button
               onClick={() => {
                 setSearch("");
@@ -248,6 +345,7 @@ export default function CallsExplorerClient({
                 setSelectedProgram("all");
                 setSelectedOutcome("all");
                 setSelectedType("all");
+                setSelectedStaff("all");
               }}
               className="text-xs font-bold text-amber-700 hover:underline cursor-pointer"
             >
@@ -390,15 +488,26 @@ export default function CallsExplorerClient({
                             <ExternalLink className="w-3.5 h-3.5" />
                           </Link>
                         )}
-                        {isSuperAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingLog(log)}
-                            className="rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700 transition-colors hover:bg-amber-100"
-                            title="Edit communication"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
+                        {canManageLog(log) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setEditingLog(log)}
+                              className="rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700 transition-colors hover:bg-amber-100"
+                              title="Edit communication"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingLogId === log.id}
+                              onClick={() => deleteLog(log)}
+                              className="rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                              title="Delete communication"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -410,7 +519,7 @@ export default function CallsExplorerClient({
         </table>
       </div>
 
-      {editingLog && isSuperAdmin && (
+      {editingLog && canManageLog(editingLog) && (
         <EditCallLogModal
           log={editingLog}
           memberName={editingLog.member?.fullName || "Member"}

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import CallsExplorerClient from "@/components/calls/CallsExplorerClient";
 import { PhoneCall, Sparkles } from "lucide-react";
 import { memberScopeFor } from "@/lib/authorization";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +15,46 @@ export default async function CallsPage() {
   const isSuperAdmin = ["admin", "superadmin"].includes(
     session.user.role?.trim().toLowerCase() || "",
   );
+  const isManager = session.user.role?.trim().toLowerCase() === "manager";
+  const department = session.user.department?.trim().toLowerCase() || "operations";
+  const userId = session.user.id || "";
+  const userEmail = session.user.email || "";
+  const employeeLogOwners: Prisma.CallLogWhereInput[] = [
+    ...(userId ? [{ staffUserId: userId }] : []),
+    ...(userEmail
+      ? [{ staffEmail: { equals: userEmail, mode: "insensitive" as const } }]
+      : []),
+  ];
+  const logScope: Prisma.CallLogWhereInput = isSuperAdmin
+    ? { member: memberScopeFor(session.user) }
+    : isManager
+      ? {
+          AND: [
+            { member: memberScopeFor(session.user) },
+            {
+              OR: [
+                { staffDepartment: { equals: department, mode: "insensitive" } },
+                { member: { is: { department: { equals: department, mode: "insensitive" } } } },
+              ],
+            },
+          ],
+        }
+      : {
+          AND: [
+            { member: memberScopeFor(session.user) },
+            {
+              OR:
+                employeeLogOwners.length > 0
+                  ? employeeLogOwners
+                  : [{ date: { gt: new Date("2999-01-01") } }],
+            },
+          ],
+        };
 
-  // Fetch recent call logs and Super Admin attribution options in parallel.
+  // Fetch recent call logs and attribution options in parallel.
   const [callLogs, contactStaffOptions] = await Promise.all([
     prisma.callLog.findMany({
-      where: { member: memberScopeFor(session.user) },
+      where: logScope,
       orderBy: { date: "desc" },
       take: 250,
       include: {
@@ -39,13 +75,20 @@ export default async function CallsPage() {
         },
       },
     }),
-    isSuperAdmin
-      ? prisma.user.findMany({
-          where: { active: true },
-          select: { id: true, name: true, email: true, role: true, department: true },
-          orderBy: [{ department: "asc" }, { name: "asc" }],
-        })
-      : Promise.resolve([]),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        ...(isSuperAdmin
+          ? {}
+          : isManager
+            ? { department: { equals: department, mode: "insensitive" as const } }
+            : userId
+              ? { id: userId }
+              : { email: { equals: userEmail, mode: "insensitive" as const } }),
+      },
+      select: { id: true, name: true, email: true, role: true, department: true },
+      orderBy: [{ department: "asc" }, { name: "asc" }],
+    }),
   ]);
 
   // Calculate statistics across call logs
@@ -97,6 +140,8 @@ export default async function CallsPage() {
           connectedRate,
         }}
         currentUserRole={session?.user?.role}
+        currentUserId={session.user.id || ""}
+        currentUserDepartment={session.user.department || "operations"}
         contactStaffOptions={contactStaffOptions}
       />
     </div>

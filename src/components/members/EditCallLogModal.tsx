@@ -40,13 +40,12 @@ const MEDIUM_OPTIONS: Array<{ value: MediumId; label: string }> = [
   { value: "sms", label: "SMS" },
   { value: "telegram", label: "Telegram" },
   { value: "in_person", label: "In-Person" },
+  { value: "internal", label: "Internal CRM" },
 ];
 
 function getEditableMedium(medium: string): MediumId {
   const normalizedMedium = normalizeCommunicationMedium(medium);
-  return normalizedMedium && normalizedMedium !== "internal"
-    ? normalizedMedium
-    : "phone";
+  return normalizedMedium || "phone";
 }
 
 function toIndiaDateTimeLocal(value: string | Date) {
@@ -131,7 +130,7 @@ export default function EditCallLogModal({
               <Edit3 className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Super Admin Edit</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Communication Edit</p>
               <h2 className="text-lg font-bold text-slate-900">Edit Communication</h2>
               <p className="mt-0.5 text-xs text-slate-500">Correcting the recorded interaction for {memberName}</p>
             </div>

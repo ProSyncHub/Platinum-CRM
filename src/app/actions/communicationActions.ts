@@ -9,6 +9,7 @@ import {
   type MediumId,
 } from "@/lib/membershipUtils";
 import { syncMemberBackground } from "@/lib/memberBackground";
+import { canManageDepartment, isAdminViewer, normalizeDepartment } from "@/lib/authorization";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const VALID_MEDIA = new Set<MediumId>([
@@ -20,25 +21,45 @@ const VALID_MEDIA = new Set<MediumId>([
   "sms",
   "telegram",
   "in_person",
+  "internal",
 ]);
 
-async function requireAdmin() {
+async function requireStaffUser() {
   const session = await getServerSession(authOptions);
-  if (
-    !session?.user ||
-    !["admin", "superadmin"].includes(
-      session.user.role?.trim().toLowerCase() || "",
-    )
-  ) {
-    throw new Error("Only administrators can edit communication history.");
+  if (!session?.user) {
+    throw new Error("You must be logged in to edit communication history.");
   }
   return session.user;
 }
 
+function canManageCommunication(
+  user: Awaited<ReturnType<typeof requireStaffUser>>,
+  log: {
+    staffUserId?: string | null;
+    staffEmail?: string | null;
+    staffDepartment?: string | null;
+  },
+) {
+  if (isAdminViewer(user)) return true;
+  if (canManageDepartment(user, log.staffDepartment)) return true;
+  return Boolean(
+    (user.id && log.staffUserId === user.id) ||
+      (user.email &&
+        log.staffEmail?.trim().toLowerCase() === user.email.trim().toLowerCase()),
+  );
+}
+
 export async function getContactAttributionStaff() {
-  const admin = await requireAdmin();
+  const user = await requireStaffUser();
+  const isAdmin = isAdminViewer(user);
+  const department = normalizeDepartment(user.department);
   const staff = await prisma.user.findMany({
-    where: { active: true },
+    where: {
+      active: true,
+      ...(isAdmin
+        ? {}
+        : { department: { equals: department, mode: "insensitive" as const } }),
+    },
     select: {
       id: true,
       name: true,
@@ -50,7 +71,7 @@ export async function getContactAttributionStaff() {
   });
 
   return {
-    currentAdminId: admin.id || "",
+    currentAdminId: user.id || "",
     staff,
   };
 }
@@ -65,11 +86,11 @@ export async function updateCommunicationLog(input: {
   notes: string;
   staffUserId: string;
 }) {
-  const admin = await requireAdmin();
+  const editor = await requireStaffUser();
 
   if (
     !OBJECT_ID_PATTERN.test(input.callLogId) ||
-    !OBJECT_ID_PATTERN.test(input.staffUserId)
+    (input.staffUserId && !OBJECT_ID_PATTERN.test(input.staffUserId))
   ) {
     return { success: false, error: "Invalid communication or staff member." };
   }
@@ -96,15 +117,27 @@ export async function updateCommunicationLog(input: {
   const [existingLog, staff] = await Promise.all([
     prisma.callLog.findUnique({
       where: { id: input.callLogId },
-      select: { id: true, memberId: true },
+      select: {
+        id: true,
+        memberId: true,
+        staffUserId: true,
+        staffEmail: true,
+        staffDepartment: true,
+      },
     }),
     prisma.user.findFirst({
-      where: { id: input.staffUserId, active: true },
+      where: { id: input.staffUserId || editor.id || "", active: true },
       select: { id: true, name: true, email: true, department: true },
     }),
   ]);
   if (!existingLog) return { success: false, error: "Communication record not found." };
   if (!staff) return { success: false, error: "Active contacted-by staff member not found." };
+  if (!canManageCommunication(editor, existingLog)) {
+    return { success: false, error: "You can edit only your own or your department's communication logs." };
+  }
+  if (!isAdminViewer(editor) && staff.id !== existingLog.staffUserId && staff.id !== editor.id) {
+    return { success: false, error: "Only administrators can change who contacted the member." };
+  }
 
   await prisma.callLog.update({
     where: { id: existingLog.id },
@@ -120,8 +153,8 @@ export async function updateCommunicationLog(input: {
       staffEmail: staff.email,
       staffDepartment: staff.department,
       editedAt: new Date(),
-      editedByName: admin.name || "Administrator",
-      editedByEmail: admin.email || "",
+      editedByName: editor.name || "Staff Member",
+      editedByEmail: editor.email || "",
     },
   });
 
@@ -146,6 +179,64 @@ export async function updateCommunicationLog(input: {
     });
   }
 
+  await syncMemberBackground(existingLog.memberId);
+
+  revalidatePath(`/members/${existingLog.memberId}`);
+  revalidatePath("/members");
+  revalidatePath("/calls");
+  revalidatePath("/followups");
+  revalidatePath("/dashboard");
+
+  return { success: true };
+}
+
+export async function deleteCommunicationLog(callLogId: string) {
+  const editor = await requireStaffUser();
+  if (!OBJECT_ID_PATTERN.test(callLogId)) {
+    return { success: false, error: "Invalid communication record." };
+  }
+
+  const existingLog = await prisma.callLog.findUnique({
+    where: { id: callLogId },
+    select: {
+      id: true,
+      memberId: true,
+      staffUserId: true,
+      staffEmail: true,
+      staffDepartment: true,
+      source: true,
+    },
+  });
+  if (!existingLog) return { success: false, error: "Communication record not found." };
+  if (!canManageCommunication(editor, existingLog)) {
+    return { success: false, error: "You can delete only your own or your department's communication logs." };
+  }
+  if (existingLog.source && existingLog.source !== "manual" && !isAdminViewer(editor)) {
+    return { success: false, error: "Only administrators can delete automated communication records." };
+  }
+
+  await prisma.callLog.delete({ where: { id: existingLog.id } });
+
+  const latestLog = await prisma.callLog.findFirst({
+    where: { memberId: existingLog.memberId },
+    orderBy: { date: "desc" },
+    select: { date: true, medium: true, staffName: true },
+  });
+  await prisma.member.update({
+    where: { id: existingLog.memberId },
+    data: latestLog
+      ? {
+          lastConnectDate: latestLog.date,
+          lastContactMedium:
+            normalizeCommunicationMedium(latestLog.medium) || latestLog.medium,
+          lastContactStaff: latestLog.staffName,
+        }
+      : {
+          lastConnectDate: null,
+          lastContactMedium: null,
+          lastContactStaff: null,
+        },
+  });
   await syncMemberBackground(existingLog.memberId);
 
   revalidatePath(`/members/${existingLog.memberId}`);

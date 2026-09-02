@@ -11,35 +11,52 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-signature") ||
       "";
     const webhookSecret = process.env.WORKFORCE_WEBHOOK_SECRET;
+    const apiKey =
+      req.headers.get("x-api-key") ||
+      req.headers.get("x-crm-api-key") ||
+      req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+      "";
+    const expectedApiKey = process.env.WORKFORCE_API_KEY || process.env.CRM_API_KEY;
 
-    if (!webhookSecret) {
+    const authenticatedWithApiKey =
+      Boolean(expectedApiKey) && apiKey.trim() === expectedApiKey;
+
+    if (!webhookSecret && !expectedApiKey) {
       return NextResponse.json(
         { success: false, message: "Workforce webhook is not configured" },
         { status: 503 },
       );
     }
-    if (!signature) {
+    if (!authenticatedWithApiKey && !signature) {
       return NextResponse.json(
-        { success: false, message: "Missing webhook signature" },
+        { success: false, message: "Missing webhook signature or API key" },
         { status: 401 },
       );
     }
 
-    const expectedSignature = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(rawBody)
-      .digest("hex");
-    const receivedSignature = signature.replace(/^sha256=/i, "");
-    const expectedBuffer = Buffer.from(expectedSignature, "hex");
-    const receivedBuffer = Buffer.from(receivedSignature, "hex");
-    if (
-      expectedBuffer.length !== receivedBuffer.length ||
-      !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
-    ) {
-      return NextResponse.json(
-        { success: false, message: "Invalid webhook signature" },
-        { status: 401 },
-      );
+    if (!authenticatedWithApiKey) {
+      if (!webhookSecret) {
+        return NextResponse.json(
+          { success: false, message: "Workforce webhook signature secret is not configured" },
+          { status: 503 },
+        );
+      }
+      const expectedSignature = crypto
+        .createHmac("sha256", webhookSecret)
+        .update(rawBody)
+        .digest("hex");
+      const receivedSignature = signature.replace(/^sha256=/i, "");
+      const expectedBuffer = Buffer.from(expectedSignature, "hex");
+      const receivedBuffer = Buffer.from(receivedSignature, "hex");
+      if (
+        expectedBuffer.length !== receivedBuffer.length ||
+        !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+      ) {
+        return NextResponse.json(
+          { success: false, message: "Invalid webhook signature" },
+          { status: 401 },
+        );
+      }
     }
 
     const payload = JSON.parse(rawBody);
@@ -82,15 +99,28 @@ export async function POST(req: NextRequest) {
         empData.department.name ||
         "operations"
       ).toLowerCase();
+    } else if (typeof empData.departmentName === "string") {
+      department = empData.departmentName.toLowerCase();
     }
 
     let role = (empData.role || "employee").toLowerCase();
+    if (role === "super_admin" || role === "superadmin") role = "admin";
     if (!["admin", "manager", "employee"].includes(role)) {
       role =
         role.includes("manager") || role.includes("lead")
           ? "manager"
           : "employee";
     }
+    const incomingPassword =
+      typeof empData.password === "string" && empData.password.length >= 6
+        ? empData.password
+        : typeof empData.workforcePassword === "string" &&
+            empData.workforcePassword.length >= 6
+          ? empData.workforcePassword
+          : "";
+    const passwordHash = incomingPassword
+      ? await bcrypt.hash(incomingPassword, 10)
+      : initialPasswordHash;
 
     await prisma.user.upsert({
       where: { email },
@@ -99,12 +129,12 @@ export async function POST(req: NextRequest) {
         role,
         department,
         active: empData.active !== false,
+        ...(incomingPassword ? { password: passwordHash } : {}),
       },
       create: {
         name,
         email,
-        // New synced accounts require an administrator password reset before login.
-        password: initialPasswordHash,
+        password: passwordHash,
         role,
         department,
         active: empData.active !== false,

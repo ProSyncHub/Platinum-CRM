@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
-import { isElevatedViewer, normalizeDepartment } from "@/lib/authorization";
+import { canManageDepartment, isAdminViewer, normalizeDepartment } from "@/lib/authorization";
 import { isMemberFollowUpEligible } from "@/lib/followupEligibility";
 import type {
   FollowUpAssignmentType,
@@ -103,7 +103,8 @@ export async function prepareFollowUpAssignment(
 
   if (
     !options.allowCrossDepartment &&
-    !isElevatedViewer(actor) &&
+    !isAdminViewer(actor) &&
+    !canManageDepartment(actor, assigneeDepartment) &&
     assigneeDepartment !== normalizeDepartment(actor.department)
   ) {
     return {

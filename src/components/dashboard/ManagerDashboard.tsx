@@ -9,6 +9,7 @@ import KpiCard from "@/components/dashboard/KpiCard";
 import AttentionTable from "@/components/dashboard/AttentionTable";
 import PartnerServicePipelineSummary from "@/components/dashboard/PartnerServicePipelineSummary";
 import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel";
+import { normalizeDepartment } from "@/lib/authorization";
 import Link from "next/link";
 import {
   Users,
@@ -24,7 +25,12 @@ import {
   Flame,
 } from "lucide-react";
 
-export default async function ManagerDashboard() {
+interface ManagerDashboardProps {
+  department: string;
+}
+
+export default async function ManagerDashboard({ department }: ManagerDashboardProps) {
+  const managerDepartment = normalizeDepartment(department);
   const [members, pendingQueryCount, activeServiceCount, recentServiceReferrals] = await Promise.all([
     prisma.member.findMany({
       where: {
@@ -41,7 +47,10 @@ export default async function ManagerDashboard() {
       },
     }),
     prisma.queryTransfer.count({
-      where: { status: "pending" },
+      where: {
+        status: "pending",
+        toDepartment: { equals: managerDepartment, mode: "insensitive" },
+      },
     }),
     prisma.memberServiceReferral.count({
       where: { status: { notIn: ["completed", "cancelled"] } },

@@ -2,6 +2,7 @@ import NextAuth, { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { verifyWorkforceCredentials } from "@/lib/workforce";
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -16,18 +17,52 @@ export const authOptions: AuthOptions = {
           throw new Error("Invalid credentials");
         }
 
-        const user = await prisma.user.findUnique({
+        let user = await prisma.user.findUnique({
           where: { email: credentials.email }
         });
 
-        if (!user) {
-          throw new Error("Invalid credentials");
-        }
+        if (user) {
+          const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
 
-        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
+          if (!isPasswordValid) {
+            const workforce = await verifyWorkforceCredentials({
+              email: credentials.email,
+              password: credentials.password,
+            });
+            if (!workforce.success || !workforce.employee || workforce.employee.email !== user.email) {
+              throw new Error("Invalid credentials");
+            }
 
-        if (!isPasswordValid) {
-          throw new Error("Invalid credentials");
+            user = await prisma.user.update({
+              where: { email: user.email },
+              data: {
+                name: workforce.employee.name,
+                role: workforce.employee.role,
+                department: workforce.employee.department,
+                active: workforce.employee.active,
+                password: await bcrypt.hash(credentials.password, 10),
+              },
+            });
+          }
+        } else {
+          const workforce = await verifyWorkforceCredentials({
+            email: credentials.email,
+            password: credentials.password,
+          });
+          if (!workforce.success || !workforce.employee) {
+            throw new Error("Invalid credentials");
+          }
+
+          user = await prisma.user.create({
+            data: {
+              name: workforce.employee.name,
+              email: workforce.employee.email,
+              role: workforce.employee.role,
+              department: workforce.employee.department,
+              active: workforce.employee.active,
+              password: await bcrypt.hash(credentials.password, 10),
+            },
+          });
         }
 
         if (!user.active) {

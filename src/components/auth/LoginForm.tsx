@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, Sparkles, ArrowRight } from "lucide-react";
+import { BriefcaseBusiness, Lock, Mail, Sparkles, ArrowRight } from "lucide-react";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -25,6 +25,25 @@ export default function LoginForm() {
 
     if (res?.error) {
       setError("Invalid email or password. Please verify your credentials.");
+      setIsLoading(false);
+    } else {
+      router.push("/workspace");
+      router.refresh();
+    }
+  };
+
+  const handleWorkforceLogin = async () => {
+    setIsLoading(true);
+    setError("");
+
+    const res = await signIn("credentials", {
+      email: email.trim(),
+      password: password.trim(),
+      redirect: false,
+    });
+
+    if (res?.error) {
+      setError("Could not verify your Workforce credentials. Please check your email and password.");
       setIsLoading(false);
     } else {
       router.push("/workspace");
@@ -97,6 +116,15 @@ export default function LoginForm() {
         >
           <span>{isLoading ? "Signing in..." : "Sign In to CRM"}</span>
           <ArrowRight className="w-4 h-4 text-amber-400" />
+        </button>
+        <button
+          type="button"
+          disabled={isLoading || !email.trim() || !password.trim()}
+          onClick={handleWorkforceLogin}
+          className="w-full py-3 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          <BriefcaseBusiness className="h-4 w-4 text-amber-600" />
+          <span>Login with Workforce</span>
         </button>
       </form>
 

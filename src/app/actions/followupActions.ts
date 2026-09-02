@@ -7,7 +7,8 @@ import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import {
   canAccessMember,
-  isElevatedViewer,
+  canManageDepartment,
+  isAdminViewer,
   memberScopeFor,
   normalizeDepartment,
 } from "@/lib/authorization";
@@ -65,31 +66,41 @@ export async function getFollowUpWorkspace() {
   }
 
   const viewer = session.user;
-  const elevated = isElevatedViewer(viewer);
+  const admin = isAdminViewer(viewer);
+  const manager = viewer.role?.trim().toLowerCase() === "manager";
   const department = normalizeDepartment(viewer.department);
   const viewerId = viewer.id || "";
+  const taskScope: Prisma.FollowUpTaskWhereInput = admin
+    ? {}
+    : manager
+      ? {
+          AND: [
+            { member: { is: memberScopeFor(viewer) } },
+            {
+              OR: [
+                { assignedToDepartment: { equals: department, mode: "insensitive" } },
+                { createdByDepartment: { equals: department, mode: "insensitive" } },
+                { assignedToUser: viewerId },
+                { createdByUser: viewerId },
+              ],
+            },
+          ],
+        }
+      : {
+          AND: [
+            { member: { is: memberScopeFor(viewer) } },
+            {
+              OR: [
+                { assignedToUser: viewerId },
+                { createdByUser: viewerId },
+              ],
+            },
+          ],
+        };
 
   const [tasks, assignableStaff] = await Promise.all([
     prisma.followUpTask.findMany({
-      where: elevated
-        ? {}
-        : {
-            AND: [
-              { member: { is: memberScopeFor(viewer) } },
-              {
-                OR: [
-                  { assignedToUser: viewerId },
-                  {
-                    assignedToDepartment: {
-                      equals: department,
-                      mode: "insensitive",
-                    },
-                  },
-                  { createdByUser: viewerId },
-                ],
-              },
-            ],
-          },
+      where: taskScope,
       select: {
         id: true,
         memberId: true,
@@ -133,7 +144,7 @@ export async function getFollowUpWorkspace() {
     prisma.user.findMany({
       where: {
         active: true,
-        ...(elevated
+        ...(admin
           ? {}
           : {
               department: {
@@ -173,7 +184,7 @@ export async function getFollowUpWorkspace() {
       email: viewer.email || "",
       role: viewer.role || "employee",
       department: viewer.department || "operations",
-      elevated,
+      elevated: admin || manager,
       superAdmin: isSuperAdmin(viewer),
     },
     generatedAt: new Date().toISOString(),
@@ -244,7 +255,7 @@ export async function createFollowUpTask(input: {
   }
 
   if (
-    !isElevatedViewer(session.user) &&
+    !isAdminViewer(session.user) &&
     normalizeDepartment(assignee.department) !==
       normalizeDepartment(session.user.department)
   ) {
@@ -332,6 +343,7 @@ export async function updateFollowUpTaskStatus(
       id: true,
       memberId: true,
       assignedToUser: true,
+      assignedToDepartment: true,
       createdByUser: true,
       status: true,
     },
@@ -343,7 +355,8 @@ export async function updateFollowUpTaskStatus(
   }
 
   const canManage =
-    isElevatedViewer(session.user) ||
+    isAdminViewer(session.user) ||
+    canManageDepartment(session.user, task.assignedToDepartment) ||
     task.assignedToUser === session.user.id ||
     task.createdByUser === session.user.id;
   if (!canManage) {
@@ -401,6 +414,7 @@ export async function updateFollowUpTask(input: {
       id: true,
       memberId: true,
       createdByUser: true,
+      assignedToDepartment: true,
       status: true,
       member: {
         select: {
@@ -421,7 +435,9 @@ export async function updateFollowUpTask(input: {
   }
 
   const canEdit =
-    isElevatedViewer(session.user) || task.createdByUser === session.user.id;
+    isAdminViewer(session.user) ||
+    canManageDepartment(session.user, task.assignedToDepartment) ||
+    task.createdByUser === session.user.id;
   if (!canEdit) {
     return { success: false, error: "Only the creator or a manager can edit this assignment." };
   }
@@ -435,7 +451,7 @@ export async function updateFollowUpTask(input: {
   });
   if (!assignee) return { success: false, error: "Active assignee not found." };
   if (
-    !isElevatedViewer(session.user) &&
+    !isAdminViewer(session.user) &&
     normalizeDepartment(assignee.department) !==
       normalizeDepartment(session.user.department)
   ) {

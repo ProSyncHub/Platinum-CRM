@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   }
 
   if (role === "manager") {
-    return <ManagerDashboard />;
+    return <ManagerDashboard department={department} />;
   }
 
   return <EmployeeDashboard department={department} />;

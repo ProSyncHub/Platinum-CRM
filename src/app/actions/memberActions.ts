@@ -15,6 +15,8 @@ import {
 } from "@/lib/membershipUtils";
 import {
   canAccessMember,
+  canManageDepartment,
+  isAdminViewer,
   isElevatedViewer,
   memberScopeFor,
   normalizeDepartment,
@@ -785,6 +787,7 @@ export async function logCallForMember(
     let followupTask: {
       id: string;
       assignedToUser: string;
+      assignedToDepartment: string;
       createdByUser: string;
       status: string;
     } | null = null;
@@ -799,6 +802,7 @@ export async function logCallForMember(
         select: {
           id: true,
           assignedToUser: true,
+          assignedToDepartment: true,
           createdByUser: true,
           status: true,
         },
@@ -809,7 +813,8 @@ export async function logCallForMember(
       }
 
       const canCompleteTask =
-        isElevatedViewer(session.user) ||
+        isAdminViewer(session.user) ||
+        canManageDepartment(session.user, followupTask.assignedToDepartment) ||
         followupTask.assignedToUser === session.user.id ||
         followupTask.createdByUser === session.user.id;
       if (!canCompleteTask) {

@@ -26,9 +26,16 @@ async function requireStaff() {
 }
 
 export async function getAllTeamMembers() {
-  await requireStaff();
+  const viewer = await requireStaff();
+  const isAdmin = ["admin", "superadmin"].includes(
+    viewer.role?.trim().toLowerCase() || "",
+  );
+  const department = viewer.department?.trim().toLowerCase() || "operations";
 
   const users = await prisma.user.findMany({
+    where: isAdmin
+      ? {}
+      : { department: { equals: department, mode: "insensitive" } },
     select: {
       id: true,
       name: true,

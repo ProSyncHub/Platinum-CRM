@@ -10,7 +10,7 @@ import {
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/db";
 import {
-  isElevatedViewer,
+  isAdminViewer,
   memberScopeFor,
   normalizeDepartment,
 } from "@/lib/authorization";
@@ -25,22 +25,37 @@ export default async function FollowUpOverviewPanel() {
 
   const viewer = session.user;
   const viewerId = viewer.id || "";
-  const elevated = isElevatedViewer(viewer);
+  const admin = isAdminViewer(viewer);
+  const manager = viewer.role?.trim().toLowerCase() === "manager";
   const department = normalizeDepartment(viewer.department);
   const taskWhere: Prisma.FollowUpTaskWhereInput = {
     status: { in: OPEN_STATUSES },
     member: { is: memberScopeFor(viewer) },
-    ...(elevated
+    ...(admin
       ? {}
-      : {
+      : manager
+        ? {
+            OR: [
+              { assignedToUser: viewerId },
+              { createdByUser: viewerId },
+              {
+                assignedToDepartment: {
+                  equals: department,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                createdByDepartment: {
+                  equals: department,
+                  mode: "insensitive" as const,
+                },
+              },
+            ],
+          }
+        : {
           OR: [
             { assignedToUser: viewerId },
-            {
-              assignedToDepartment: {
-                equals: department,
-                mode: "insensitive" as const,
-              },
-            },
+            { createdByUser: viewerId },
           ],
         }),
   };

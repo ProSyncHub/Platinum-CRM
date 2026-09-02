@@ -32,7 +32,7 @@ export interface WorkforceEmployee {
 function normalizeRole(roleStr?: string): "admin" | "manager" | "employee" {
   if (!roleStr) return "employee";
   const r = roleStr.toUpperCase().trim();
-  if (r.includes("ADMIN") || r === "SUPER_ADMIN") return "admin";
+  if (r.includes("ADMIN") || r === "SUPER_ADMIN" || r === "SUPERADMIN") return "admin";
   if (r.includes("MANAGER") || r === "HR" || r.includes("LEAD") || r.includes("HEAD")) return "manager";
   return "employee";
 }
@@ -64,22 +64,28 @@ function normalizeDepartment(dept?: unknown): string {
   return name || "operations";
 }
 
+function workforceApiBaseUrl() {
+  return (process.env.WORKFORCE_API_URL || "https://api.prosyncedu.com/api").replace(/\/+$/, "");
+}
+
+function withApiPath(baseUrl: string, path: string) {
+  return baseUrl.endsWith("/api") ? `${baseUrl}${path}` : `${baseUrl}/api${path}`;
+}
+
 export async function fetchWorkforceDepartments(): Promise<{
   success: boolean;
   departments?: WorkforceDepartment[];
   error?: string;
   status?: number;
 }> {
-  const baseUrl = process.env.WORKFORCE_API_URL || "https://api.prosyncedu.com/api";
+  const baseUrl = workforceApiBaseUrl();
   const apiKey = process.env.WORKFORCE_API_KEY;
   if (!apiKey) {
     return { success: false, error: "WORKFORCE_API_KEY is not configured." };
   }
 
   try {
-    const url = baseUrl.endsWith("/api")
-      ? `${baseUrl}/crm/departments`
-      : `${baseUrl}/api/crm/departments`;
+    const url = withApiPath(baseUrl, "/crm/departments");
 
     const res = await fetch(url, {
       method: "GET",
@@ -120,16 +126,14 @@ export async function fetchWorkforceEmployees(): Promise<{
   error?: string;
   status?: number;
 }> {
-  const baseUrl = process.env.WORKFORCE_API_URL || "https://api.prosyncedu.com/api";
+  const baseUrl = workforceApiBaseUrl();
   const apiKey = process.env.WORKFORCE_API_KEY;
   if (!apiKey) {
     return { success: false, error: "WORKFORCE_API_KEY is not configured." };
   }
 
   try {
-    const url = baseUrl.endsWith("/api")
-      ? `${baseUrl}/crm/employees`
-      : `${baseUrl}/api/crm/employees`;
+    const url = withApiPath(baseUrl, "/crm/employees");
 
     const res = await fetch(url, {
       method: "GET",
@@ -189,7 +193,7 @@ export async function syncWorkforceStaffToCRM(): Promise<{
     const email = emp.email.toLowerCase().trim();
     const name = emp.name.trim();
     const role = normalizeRole(emp.role);
-    const department = normalizeDepartment(emp.department);
+    const department = normalizeDepartment(emp.department || emp.departmentName);
     const initialPasswordHash = await bcrypt.hash(
       randomBytes(32).toString("base64url"),
       10,
@@ -221,5 +225,74 @@ export async function syncWorkforceStaffToCRM(): Promise<{
     success: true,
     syncedCount: synced,
     message: `Successfully synchronized ${synced} workforce employees and departments!`,
+  };
+}
+
+export async function verifyWorkforceCredentials(input: {
+  email: string;
+  password: string;
+}): Promise<{
+  success: boolean;
+  employee?: {
+    name: string;
+    email: string;
+    role: "admin" | "manager" | "employee";
+    department: string;
+    active: boolean;
+  };
+  error?: string;
+}> {
+  const apiKey = process.env.WORKFORCE_API_KEY;
+  if (!apiKey) return { success: false, error: "WORKFORCE_API_KEY is not configured." };
+
+  const email = input.email.trim().toLowerCase();
+  const password = input.password;
+  if (!email || !password) return { success: false, error: "Missing credentials." };
+
+  const explicitUrl = process.env.WORKFORCE_AUTH_URL?.trim();
+  const baseUrl = workforceApiBaseUrl();
+  const urls = explicitUrl
+    ? [explicitUrl]
+    : [
+        withApiPath(baseUrl, "/crm/auth/login"),
+        withApiPath(baseUrl, "/auth/login"),
+      ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "X-API-KEY": apiKey,
+        },
+        body: JSON.stringify({ email, password }),
+        cache: "no-store",
+      });
+      if (res.status === 404 || res.status === 405) continue;
+      if (!res.ok) return { success: false, error: "Invalid Workforce credentials." };
+
+      const json = await res.json();
+      const employee = json.employee || json.user || json.data?.employee || json.data?.user || json.data || json;
+      if (!employee?.email) return { success: false, error: "Workforce login did not return an employee." };
+      return {
+        success: true,
+        employee: {
+          name: employee.name || employee.fullName || employee.email.split("@")[0],
+          email: employee.email.toLowerCase().trim(),
+          role: normalizeRole(employee.role),
+          department: normalizeDepartment(employee.department || employee.departmentName),
+          active: employee.active !== false,
+        },
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return {
+    success: false,
+    error: "Workforce credential verification endpoint is not configured.",
   };
 }

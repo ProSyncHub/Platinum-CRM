@@ -20,6 +20,21 @@ export function isElevatedViewer(user?: Viewer | null) {
   return role === "admin" || role === "superadmin" || role === "manager";
 }
 
+export function isAdminViewer(user?: Viewer | null) {
+  const role = user?.role?.trim().toLowerCase();
+  return role === "admin" || role === "superadmin";
+}
+
+export function isManagerViewer(user?: Viewer | null) {
+  return user?.role?.trim().toLowerCase() === "manager";
+}
+
+export function canManageDepartment(user: Viewer, department?: string | null) {
+  if (isAdminViewer(user)) return true;
+  if (!isManagerViewer(user)) return false;
+  return normalizeDepartment(user.department) === normalizeDepartment(department);
+}
+
 /**
  * Every authenticated CRM employee can find members and read their complete
  * journey. Mutation permissions remain enforced separately at each server

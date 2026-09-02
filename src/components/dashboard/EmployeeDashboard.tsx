@@ -33,6 +33,12 @@ interface EmployeeDashboardProps {
 export default async function EmployeeDashboard({ department }: EmployeeDashboardProps) {
   const session = await getServerSession(authOptions);
   const userName = session?.user?.name || "";
+  const userId = session?.user?.id || "";
+  const userEmail = session?.user?.email || "";
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
   // Fetch all members assigned to this employee or general pool
   const allMembers = await prisma.member.findMany({
@@ -57,18 +63,54 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
     orderBy: { updatedAt: "desc" },
   });
 
-  // Transferred queries for this department
-  const pendingQueries = await prisma.queryTransfer.findMany({
-    where: {
-      toDepartment: normalizeDepartment(department),
-      status: "pending",
-    },
-    include: {
-      member: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
+  const [pendingQueries, callsToday, logsToday] = await Promise.all([
+    prisma.queryTransfer.findMany({
+      where: {
+        status: "pending",
+        OR: [
+          ...(userId ? [{ assignedToUser: userId }] : []),
+          {
+            AND: [
+              { assignedToUser: null },
+              { toDepartment: normalizeDepartment(department) },
+            ],
+          },
+        ],
+      },
+      include: {
+        member: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+    }),
+    prisma.callLog.count({
+      where: {
+        date: { gte: todayStart, lt: tomorrowStart },
+        OR: [
+          ...(userId ? [{ staffUserId: userId }] : []),
+          ...(userEmail ? [{ staffEmail: { equals: userEmail, mode: "insensitive" as const } }] : []),
+        ],
+      },
+    }),
+    prisma.callLog.findMany({
+      where: {
+        date: { gte: todayStart, lt: tomorrowStart },
+        OR: [
+          ...(userId ? [{ staffUserId: userId }] : []),
+          ...(userEmail ? [{ staffEmail: { equals: userEmail, mode: "insensitive" as const } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        date: true,
+        medium: true,
+        outcome: true,
+        member: { select: { id: true, fullName: true, memberCode: true } },
+      },
+      orderBy: { date: "desc" },
+      take: 5,
+    }),
+  ]);
 
   // Filter assigned members
   const assignedMembers = allMembers.filter(
@@ -132,8 +174,8 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
           icon={Sparkles}
         />
         <KpiCard
-          title="Attention Required"
-          value={urgentAttentionCount}
+          title="Calls Logged Today"
+          value={callsToday}
           icon={Flame}
         />
         <KpiCard
@@ -144,6 +186,39 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
       </div>
 
       <FollowUpOverviewPanel />
+
+      {logsToday.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900">Your logs today</h3>
+            <Link href="/calls" className="text-xs font-bold text-amber-700 hover:underline">
+              Open calls page
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {logsToday.map((log) => (
+              <Link
+                key={log.id}
+                href={`/members/${log.member.id}`}
+                className="flex items-center justify-between gap-4 py-2.5 text-xs hover:bg-slate-50"
+              >
+                <span>
+                  <span className="font-bold text-slate-900">{log.member.fullName}</span>
+                  <span className="ml-2 font-mono text-slate-500">{log.member.memberCode}</span>
+                </span>
+                <span className="text-right text-slate-500">
+                  {log.medium} · {log.outcome} ·{" "}
+                  {new Intl.DateTimeFormat("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "Asia/Kolkata",
+                  }).format(log.date)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Transferred Queries to this Department */}
       {pendingQueries.length > 0 && (
