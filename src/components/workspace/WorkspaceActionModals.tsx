@@ -101,10 +101,12 @@ export function QuickCommunicationModal({
   member,
   user,
   contactStaffOptions,
+  departments,
   onSuccess,
 }: BaseProps & {
   user: { id: string; role: string; department: string };
   contactStaffOptions: StaffOption[];
+  departments: string[];
 }) {
   const [loading, setLoading] = useState(false);
   const [medium, setMedium] = useState<MediumId>("phone");
@@ -118,6 +120,11 @@ export function QuickCommunicationModal({
   const [followUpDueAt, setFollowUpDueAt] = useState(() => futureDateTime(1));
   const [followUpPriority, setFollowUpPriority] =
     useState<Priority>("medium");
+  const [transferEnabled, setTransferEnabled] = useState(false);
+  const [transferDepartment, setTransferDepartment] = useState("");
+  const [transferOwner, setTransferOwner] = useState("");
+  const [transferDueAt, setTransferDueAt] = useState(() => futureDateTime(1));
+  const [transferPriority, setTransferPriority] = useState<Priority>("medium");
 
   const normalizedRole = user.role.trim().toLowerCase();
   const canAttribute = ["admin", "superadmin"].includes(normalizedRole);
@@ -131,49 +138,71 @@ export function QuickCommunicationModal({
           person.department.trim().toLowerCase() ===
           user.department.trim().toLowerCase(),
       );
+  const transferStaff = contactStaffOptions.filter(
+    (person) =>
+      person.department.trim().toLowerCase() ===
+      transferDepartment.trim().toLowerCase(),
+  );
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const notes = String(form.get("notes") || "").trim();
     if (!notes) return toast.error("Write a short communication note.");
-    if (requiresFollowUp && (!followUpOwner || !followUpDueAt)) {
+    if (!transferEnabled && requiresFollowUp && (!followUpOwner || !followUpDueAt)) {
       return toast.error("Choose who will follow up and when.");
+    }
+    if (transferEnabled && (!transferDepartment || !transferOwner || !transferDueAt)) {
+      return toast.error("Choose the receiving team, person, and due time.");
     }
 
     setLoading(true);
     try {
-      const response = await logCallForMember(
-        member.id,
-        type,
-        outcome,
-        notes,
-        undefined,
-        medium,
-        Number(form.get("duration") || 0),
-        health,
-        undefined,
-        undefined,
-        undefined,
-        canAttribute ? contactedBy || undefined : undefined,
-        undefined,
-        requiresFollowUp
-          ? {
-              assignedToUser: followUpOwner,
-              dueAt: new Date(followUpDueAt).toISOString(),
-              priority: followUpPriority,
-              title: `Call ${member.fullName} again`,
-              instructions: notes,
-            }
-          : undefined,
-      );
+      const response = transferEnabled
+        ? await transferWithCommunication(member.id, {
+            toDepartment: transferDepartment,
+            assignedToUser: transferOwner,
+            dueAt: new Date(transferDueAt).toISOString(),
+            reason: String(form.get("transferReason") || "").trim() || notes,
+            priority: transferPriority,
+            medium,
+            type,
+            outcome,
+            communicationNotes: notes,
+          })
+        : await logCallForMember(
+            member.id,
+            type,
+            outcome,
+            notes,
+            undefined,
+            medium,
+            Number(form.get("duration") || 0),
+            health,
+            undefined,
+            undefined,
+            undefined,
+            canAttribute ? contactedBy || undefined : undefined,
+            undefined,
+            requiresFollowUp
+              ? {
+                  assignedToUser: followUpOwner,
+                  dueAt: new Date(followUpDueAt).toISOString(),
+                  priority: followUpPriority,
+                  title: `Call ${member.fullName} again`,
+                  instructions: notes,
+                }
+              : undefined,
+          );
       if (!response.success) {
         return toast.error(response.error || "Could not log communication.");
       }
       toast.success(
-        requiresFollowUp
-          ? "Communication saved and follow-up assigned."
-          : "Communication added to the customer journey.",
+        transferEnabled
+          ? "Communication logged and task transferred."
+          : requiresFollowUp
+            ? "Communication saved and follow-up assigned."
+            : "Communication added to the customer journey.",
       );
       onClose();
       onSuccess();
@@ -187,8 +216,8 @@ export function QuickCommunicationModal({
       isOpen={isOpen}
       onClose={onClose}
       icon={MessageSquareText}
-      title="Log communication"
-      subtitle={`${member.fullName} · ${member.phone}`}
+      title="Log communication / transfer"
+      subtitle={`${member.fullName} · ${member.phone}. Turn on transfer only when another team must act.`}
       wide
     >
       <form onSubmit={submit} className="max-h-[78vh] overflow-y-auto p-5 sm:p-6">
@@ -261,6 +290,69 @@ export function QuickCommunicationModal({
                 className="h-11 w-full rounded-lg border border-slate-300 px-3 font-normal outline-none focus:border-amber-500"
               />
             </label>
+            <label className="sm:col-span-2 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={transferEnabled}
+                onChange={(event) => setTransferEnabled(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-950"
+              />
+              <span>
+                <span className="block font-bold text-slate-950">Transfer this to another team</span>
+                <span className="mt-0.5 block text-xs text-slate-500">Creates one assigned work item for the receiving person.</span>
+              </span>
+            </label>
+            {transferEnabled && (
+              <>
+                <Select
+                  label="Receiving department"
+                  value={transferDepartment}
+                  onChange={(value) => {
+                    setTransferDepartment(value);
+                    setTransferOwner("");
+                  }}
+                >
+                  <option value="">Select team</option>
+                  {departments.map((department) => (
+                    <option key={department} value={department}>
+                      {department.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  label="Assign to"
+                  value={transferOwner}
+                  onChange={setTransferOwner}
+                >
+                  <option value="">Select person</option>
+                  {transferStaff.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name} · {person.department}
+                    </option>
+                  ))}
+                </Select>
+                <label className="space-y-1.5 text-sm font-semibold text-slate-700">
+                  Due on
+                  <input
+                    required
+                    type="datetime-local"
+                    value={transferDueAt}
+                    onChange={(event) => setTransferDueAt(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal outline-none focus:border-amber-500"
+                  />
+                </label>
+                <Select
+                  label="Priority"
+                  value={transferPriority}
+                  onChange={(value) => setTransferPriority(value as Priority)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </Select>
+              </>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -270,7 +362,17 @@ export function QuickCommunicationModal({
               required
               rows={7}
             />
-            {requiresFollowUp && (
+            {transferEnabled && (
+              <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                <NotesField
+                  name="transferReason"
+                  label="What should the receiving person do?"
+                  required
+                  rows={4}
+                />
+              </div>
+            )}
+            {!transferEnabled && requiresFollowUp && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-bold text-slate-950">
                   Follow-up required
@@ -330,7 +432,7 @@ export function QuickCommunicationModal({
         <FormButtons
           loading={loading}
           onClose={onClose}
-          submitLabel="Save communication"
+          submitLabel={transferEnabled ? "Log & transfer" : "Save communication"}
         />
       </form>
     </ModalFrame>

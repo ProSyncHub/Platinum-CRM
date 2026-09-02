@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  ArrowRightLeft,
   Building2,
   CalendarClock,
   CircleDot,
@@ -26,7 +25,6 @@ import OneOnOneSessionsPanel, {
 import {
   DepartmentUpdateModal,
   QuickCommunicationModal,
-  TransferCommunicationModal,
 } from "@/components/workspace/WorkspaceActionModals";
 
 interface MemberJourneyWorkspaceProps {
@@ -151,7 +149,6 @@ export default function MemberJourneyWorkspace({
 }: MemberJourneyWorkspaceProps) {
   const router = useRouter();
   const [communicationOpen, setCommunicationOpen] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
   const [departmentOpen, setDepartmentOpen] = useState(false);
 
   const latestByDepartment = useMemo(() => {
@@ -179,16 +176,42 @@ export default function MemberJourneyWorkspace({
   }, [member.callLogs]);
 
   const timeline = useMemo(() => {
-    const calls: TimelineEntry[] = (member.callLogs || []).map((item) => ({
-      id: `call-${item.id}`,
-      type: "communication",
-      at: item.date,
-      title: item.outcome,
-      body: item.notes,
-      meta: `${titleCase(item.medium)} · ${titleCase(item.type)} · ${item.staffName || "Staff member"}`,
-      department: item.staffDepartment,
-    }));
-    const transfers: TimelineEntry[] = (member.queryTransfers || []).map((item) => ({
+    // A log-and-transfer has a communication and an internal work item. They
+    // are one customer event, so show one combined timeline card instead.
+    const transfersByCallId = new Map<string, TransferEntry>();
+    const standaloneTransfers: TransferEntry[] = [];
+    for (const transfer of member.queryTransfers || []) {
+      const matchingCall = (member.callLogs || []).find((call) => {
+        const sameDepartment =
+          (call.staffDepartment || "").trim().toLowerCase() ===
+          transfer.fromDepartment.trim().toLowerCase();
+        const sameMoment =
+          Math.abs(new Date(call.date).getTime() - new Date(transfer.createdAt).getTime()) <
+          2 * 60_000;
+        return sameDepartment && sameMoment;
+      });
+      if (matchingCall) transfersByCallId.set(matchingCall.id, transfer);
+      else standaloneTransfers.push(transfer);
+    }
+
+    const calls: TimelineEntry[] = (member.callLogs || []).map((item) => {
+      const transfer = transfersByCallId.get(item.id);
+      const transferDetail = transfer
+        ? `\n\nTransferred to ${titleCase(transfer.toDepartment)}${transfer.assignedToName ? ` · Assigned to ${transfer.assignedToName}` : ""}\nRequired action: ${transfer.reason}`
+        : "";
+      return {
+        id: `call-${item.id}`,
+        type: "communication",
+        at: item.date,
+        title: transfer
+          ? `${item.outcome} · Transferred to ${titleCase(transfer.toDepartment)}`
+          : item.outcome,
+        body: `${item.notes}${transferDetail}`,
+        meta: `${titleCase(item.medium)} · ${titleCase(item.type)} · ${item.staffName || "Staff member"}${transfer ? ` · ${titleCase(transfer.priority)} priority` : ""}`,
+        department: item.staffDepartment,
+      };
+    });
+    const transfers: TimelineEntry[] = standaloneTransfers.map((item) => ({
       id: `transfer-${item.id}`,
       type: "transfer",
       at: item.createdAt,
@@ -254,22 +277,14 @@ export default function MemberJourneyWorkspace({
             </div>
           </div>
 
-          <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto lg:min-w-[430px]">
+          <div className="w-full lg:w-auto lg:min-w-[260px]">
             <button
               type="button"
               onClick={() => setCommunicationOpen(true)}
               className="flex min-h-16 items-center justify-center gap-3 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
             >
               <MessageSquareText className="h-5 w-5 text-amber-400" />
-              Log communication
-            </button>
-            <button
-              type="button"
-              onClick={() => setTransferOpen(true)}
-              className="flex min-h-16 items-center justify-center gap-3 rounded-2xl border-2 border-slate-950 bg-white px-5 py-4 text-sm font-bold text-slate-950 hover:bg-slate-50"
-            >
-              <ArrowRightLeft className="h-5 w-5" />
-              Transfer to a team
+              Log / transfer
             </button>
           </div>
         </div>
@@ -429,14 +444,7 @@ export default function MemberJourneyWorkspace({
         member={member}
         user={user}
         contactStaffOptions={contactStaffOptions}
-        onSuccess={refresh}
-      />
-      <TransferCommunicationModal
-        isOpen={transferOpen}
-        onClose={() => setTransferOpen(false)}
-        member={member}
         departments={departments.filter((department) => department !== user.department.toLowerCase())}
-        staffOptions={contactStaffOptions}
         onSuccess={refresh}
       />
       <DepartmentUpdateModal

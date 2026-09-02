@@ -122,10 +122,10 @@ export default async function FollowUpOverviewPanel() {
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-950">
-              Follow-ups requiring action
+              Your open work
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              {selfCount} assigned to you · {transferredCount} transferred
+              {selfCount} assigned to you{transferredCount > 0 ? ` · ${transferredCount} transferred to your team` : ""}
             </p>
           </div>
         </div>
@@ -133,7 +133,7 @@ export default async function FollowUpOverviewPanel() {
           href="/followups"
           className="inline-flex items-center gap-2 self-start rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800"
         >
-          Open follow-up queue
+          Open all tasks
           <ArrowRight className="h-4 w-4 text-amber-400" />
         </Link>
       </div>
@@ -170,7 +170,7 @@ export default async function FollowUpOverviewPanel() {
                     ) : (
                       <UserRound className="h-3 w-3" />
                     )}
-                    {isMine ? "Call again" : isTransferred ? "Transferred" : "Assigned"}
+                    {isMine ? "Your task" : isTransferred ? "Transferred" : "Team task"}
                   </span>
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${priority.badgeClass}`}

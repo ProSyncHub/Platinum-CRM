@@ -11,12 +11,8 @@ import {
 import { memberScopeFor, normalizeDepartment } from "@/lib/authorization";
 import KpiCard from "@/components/dashboard/KpiCard";
 import Link from "next/link";
-import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel";
 import {
   Users,
-  PhoneCall,
-  Clock,
-  SendHorizontal,
   Briefcase,
   Sparkles,
   ArrowRight,
@@ -63,26 +59,7 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
     orderBy: { updatedAt: "desc" },
   });
 
-  const [pendingQueries, callsToday, logsToday] = await Promise.all([
-    prisma.queryTransfer.findMany({
-      where: {
-        status: "pending",
-        OR: [
-          ...(userId ? [{ assignedToUser: userId }] : []),
-          {
-            AND: [
-              { assignedToUser: null },
-              { toDepartment: normalizeDepartment(department) },
-            ],
-          },
-        ],
-      },
-      include: {
-        member: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-    }),
+  const [callsToday, logsToday] = await Promise.all([
     prisma.callLog.count({
       where: {
         date: { gte: todayStart, lt: tomorrowStart },
@@ -178,14 +155,7 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
           value={callsToday}
           icon={Flame}
         />
-        <KpiCard
-          title="Pending Department Queries"
-          value={pendingQueries.length}
-          icon={SendHorizontal}
-        />
       </div>
-
-      <FollowUpOverviewPanel />
 
       {logsToday.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
@@ -215,72 +185,6 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
                   }).format(log.date)}
                 </span>
               </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Transferred Queries to this Department */}
-      {pendingQueries.length > 0 && (
-        <div className="p-6 rounded-3xl bg-purple-50 border border-purple-200/80 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-purple-100 text-purple-700 border border-purple-200">
-                <SendHorizontal className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Incoming Queries for {department.toUpperCase()} ({pendingQueries.length})
-                </h3>
-                <p className="text-xs text-slate-600">
-                  Issues routed from other teams requiring your department's resolution
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {pendingQueries.map((q) => (
-              <div
-                key={q.id}
-                className="p-4 rounded-2xl bg-white border border-purple-200 shadow-xs space-y-2 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">
-                      {q.member.fullName}
-                    </span>
-                    <span className="font-mono text-amber-700 text-[10px] font-bold">
-                      {q.member.memberCode}
-                    </span>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      q.priority === "urgent"
-                        ? "bg-red-100 text-red-700 border border-red-200"
-                        : q.priority === "high"
-                        ? "bg-amber-100 text-amber-800 border border-amber-200"
-                        : "bg-purple-100 text-purple-800 border border-purple-200"
-                    }`}
-                  >
-                    {q.priority || "Medium"} Priority
-                  </span>
-                </div>
-
-                <p className="text-slate-700 text-xs leading-relaxed">{q.reason}</p>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500 font-medium">
-                    From {q.fromDepartment.toUpperCase()}
-                  </span>
-                  <Link
-                    href={`/members/${q.memberId}`}
-                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition-colors"
-                  >
-                    Open & Resolve
-                  </Link>
-                </div>
-              </div>
             ))}
           </div>
         </div>
