@@ -1,0 +1,91 @@
+name: Deploy CRM to production VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy crm.prosyncedu.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+
+    steps:
+      - name: Verify deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in VPS_HOST VPS_USER VPS_SSH_PRIVATE_KEY VPS_SSH_KNOWN_HOSTS; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing GitHub Actions secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Configure deployment SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/prosync_crm_deploy"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/prosync_crm_deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Deploy exact commit on VPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${VPS_PORT:-22}"
+          ssh \
+            -i "$HOME/.ssh/prosync_crm_deploy" \
+            -p "$port" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          expected_sha="$1"
+          cd /var/www/prosync-crm
+          git fetch --prune origin main
+          deploy_script="$(mktemp)"
+          trap 'rm -f "$deploy_script"' EXIT
+          git show "${expected_sha}:scripts/deploy-vps.sh" > "$deploy_script"
+          bash "$deploy_script" "$expected_sha"
+          REMOTE
+
+      - name: Verify public CRM
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl \
+            --fail \
+            --location \
+            --max-time 30 \
+            --retry 5 \
+            --retry-all-errors \
+            --show-error \
+            --silent \
+            --output /dev/null \
+            https://crm.prosyncedu.com

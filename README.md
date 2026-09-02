@@ -135,8 +135,13 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Production deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Production runs on the Hostinger VPS behind Nginx at
+[`crm.prosyncedu.com`](https://crm.prosyncedu.com). After the one-time GitHub
+Actions secrets are configured, every push to `main` builds and deploys the
+exact commit through PM2.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [the continuous deployment guide](docs/VPS_CONTINUOUS_DEPLOYMENT.md) for
+the VPS architecture, required GitHub secrets, first deployment, verification,
+and rollback procedure.
