@@ -43,12 +43,28 @@ export function normalizeWatiLeadPayload(payload: unknown):
   if (!isRecord(payload)) return { accepted: false, reason: "Payload is not an object" };
   if (payload.owner === true) return { accepted: false, reason: "Outgoing account message" };
 
-  const eventType = directString(payload, ["eventType", "event", "type"]).toLowerCase();
+  const generic = normalizeGenericLeadPayload(payload);
+  const flattened = flattenLeadPayload(payload);
+  const flattenedValue = (aliases: string[]) => {
+    for (const alias of aliases) {
+      const key = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const value = flattened.get(key);
+      if (typeof value === "string" || typeof value === "number") return String(value).trim();
+      const objectValue = valueFromObject(value);
+      if (objectValue) return objectValue;
+    }
+    return "";
+  };
+
+  const eventType =
+    directString(payload, ["eventType", "event", "type"]).toLowerCase() ||
+    flattenedValue(["eventType", "event", "type"]).toLowerCase();
   const incomingEvent =
     !eventType ||
     eventType === "message" ||
     eventType.includes("messagereceived") ||
-    eventType.includes("replied");
+    eventType.includes("replied") ||
+    eventType.includes("received");
   if (!incomingEvent) return { accepted: false, reason: "Not an incoming reply event" };
 
   const replyCandidates = [
@@ -56,6 +72,9 @@ export function normalizeWatiLeadPayload(payload: unknown):
     valueFromObject(payload.buttonReply),
     valueFromObject(payload.listReply),
     directString(payload, ["text", "message", "reply"]),
+    flattenedValue(["interactiveButtonReply", "buttonReply", "listReply"]),
+    flattenedValue(["selectedDisplayText", "displayText", "replyText", "reply", "text", "message"]),
+    generic.responseText,
   ].filter(Boolean);
   const responseText =
     replyCandidates.find((candidate) => normalizeLeadResponse(candidate) !== "other") || "";
@@ -64,25 +83,23 @@ export function normalizeWatiLeadPayload(payload: unknown):
     return { accepted: false, reason: "Reply is not one of the configured lead options" };
   }
 
-  const generic = normalizeGenericLeadPayload(payload);
-  const flattened = flattenLeadPayload(payload);
-  const flattenedValue = (aliases: string[]) => {
-    for (const alias of aliases) {
-      const key = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const value = flattened.get(key);
-      if (typeof value === "string" || typeof value === "number") return String(value).trim();
-    }
-    return "";
-  };
-  const phone = directString(payload, ["waId", "whatsappNumber", "phone", "mobile"]);
-  const senderName = directString(payload, ["senderName", "contactName", "name"]);
-  const timestamp = directString(payload, ["created", "timestamp", "receivedAt"]);
-  const externalId = directString(payload, [
-    "id",
-    "whatsappMessageId",
-    "localMessageId",
-    "messageId",
-  ]);
+  const phone =
+    directString(payload, ["waId", "whatsappNumber", "phone", "mobile"]) ||
+    flattenedValue(["waId", "whatsappNumber", "phone", "mobile", "phoneNumber"]);
+  const senderName =
+    directString(payload, ["senderName", "contactName", "name"]) ||
+    flattenedValue(["senderName", "contactName", "customerName", "name"]);
+  const timestamp =
+    directString(payload, ["created", "timestamp", "receivedAt"]) ||
+    flattenedValue(["created", "timestamp", "receivedAt", "createdAt", "date"]);
+  const externalId =
+    directString(payload, [
+      "id",
+      "whatsappMessageId",
+      "localMessageId",
+      "messageId",
+    ]) ||
+    flattenedValue(["id", "whatsappMessageId", "localMessageId", "messageId", "eventId"]);
 
   return {
     accepted: true,
