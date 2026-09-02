@@ -80,7 +80,10 @@ npm run build
 # supplied, so a destructive schema change stops the deployment for review.
 npx prisma db push
 
-pm2 startOrReload ecosystem.config.cjs --only "$PM2_APP_NAME" --update-env
+# Recreate this app so PM2 cannot keep stale command metadata from an older
+# process definition. Other PM2 apps on the VPS are left untouched.
+pm2 delete "$PM2_APP_NAME" >/dev/null 2>&1 || true
+pm2 start ecosystem.config.cjs --only "$PM2_APP_NAME" --update-env
 pm2 save
 
 for attempt in {1..12}; do
