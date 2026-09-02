@@ -5,6 +5,7 @@ import { getMemberById } from "@/app/actions/memberActions";
 import { getServicePartners } from "@/app/actions/serviceActions";
 import MemberDetailClient from "@/components/members/MemberDetailClient";
 import { prisma } from "@/lib/db";
+import { hasUserCapability } from "@/lib/accessControl.server";
 
 interface Props {
   params: Promise<{
@@ -20,29 +21,23 @@ export default async function MemberDetailsPage({ params }: Props) {
     notFound();
   }
 
-  const isSuperAdmin = ["admin", "superadmin"].includes(
-    session?.user?.role?.trim().toLowerCase() || "",
-  );
-  const canManageOneOnOnes =
-    isSuperAdmin ||
-    session?.user?.role?.trim().toLowerCase() === "manager" ||
-    session?.user?.department?.trim().toLowerCase() === "management";
+  const canManageOneOnOnes = session?.user
+    ? await hasUserCapability(session.user, "sessions.manage")
+    : false;
   const [{ success, member }, serviceResult, contactStaffOptions, oneOnOneSessions] = await Promise.all([
     getMemberById(id),
     getServicePartners(),
-    canManageOneOnOnes
-      ? prisma.user.findMany({
-          where: { active: true },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-            department: true,
-          },
-          orderBy: [{ department: "asc" }, { name: "asc" }],
-        })
-      : Promise.resolve([]),
+    prisma.user.findMany({
+      where: { active: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        department: true,
+      },
+      orderBy: [{ department: "asc" }, { name: "asc" }],
+    }),
     prisma.oneOnOneSession.findMany({
       where: { memberId: id },
       orderBy: [{ sessionNumber: "asc" }, { sequence: "desc" }],
@@ -79,6 +74,22 @@ export default async function MemberDetailsPage({ params }: Props) {
     notFound();
   }
 
+  const departments = Array.from(
+    new Set([
+      "brand",
+      "ecom",
+      "operations",
+      "support",
+      "sourcing",
+      "research",
+      "sales",
+      "accounts",
+      "gst",
+      "management",
+      ...contactStaffOptions.map((user) => user.department.trim().toLowerCase()),
+    ]),
+  ).sort();
+
   return (
     <MemberDetailClient
       member={member}
@@ -89,6 +100,8 @@ export default async function MemberDetailsPage({ params }: Props) {
       availableServicePartners={serviceResult.partners || []}
       contactStaffOptions={contactStaffOptions}
       oneOnOneSessions={JSON.parse(JSON.stringify(oneOnOneSessions))}
+      canManageOneOnOnes={canManageOneOnOnes}
+      departments={departments}
     />
   );
 }

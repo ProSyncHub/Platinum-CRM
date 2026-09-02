@@ -4,9 +4,10 @@ import { getServerSession } from "next-auth/next";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { canAccessMember, normalizeDepartment } from "@/lib/authorization";
+import { canAccessMember } from "@/lib/authorization";
 import { prisma } from "@/lib/db";
 import { reconcileOneOnOneSession } from "@/lib/oneOnOneSessions";
+import { hasUserCapability } from "@/lib/accessControl.server";
 import {
   createZoomMeeting,
   deleteZoomMeeting,
@@ -40,15 +41,6 @@ const rescheduleSchema = z.object({
   plannedDuration: z.coerce.number().int().min(15).max(240),
 });
 
-function canManageOneOnOnes(user: {
-  role?: string | null;
-  department?: string | null;
-}) {
-  const role = user.role?.trim().toLowerCase();
-  const department = normalizeDepartment(user.department);
-  return ["admin", "superadmin", "manager"].includes(role || "") || department === "management";
-}
-
 function isEligiblePlatinumMember(member: { programType: string; memberCode: string }) {
   const program = member.programType.trim().toLowerCase();
   return program.includes("platinum") || member.memberCode.toUpperCase().startsWith("PLT");
@@ -61,10 +53,10 @@ function futureDate(date: Date) {
 async function requireSessionManager() {
   const authSession = await getServerSession(authOptions);
   if (!authSession?.user) return { success: false as const, error: "Unauthorized" };
-  if (!canManageOneOnOnes(authSession.user)) {
+  if (!(await hasUserCapability(authSession.user, "sessions.manage"))) {
     return {
       success: false as const,
-      error: "Only management, managers and administrators can manage 1-on-1 sessions.",
+      error: "Your CRM role does not permit managing 1-on-1 sessions.",
     };
   }
   return { success: true as const, user: authSession.user };
@@ -111,6 +103,7 @@ export async function scheduleOneOnOneSession(input: {
         programType: true,
         approvalStatus: true,
         oneOnOneSessions: true,
+        oneOnOneSessionAllowance: true,
       },
     }),
     prisma.oneOnOneSession.findFirst({
@@ -147,6 +140,9 @@ export async function scheduleOneOnOneSession(input: {
       success: false as const,
       error: `Session ${parsed.data.sessionNumber} is already included in this member's recorded session history.`,
     };
+  }
+  if (parsed.data.sessionNumber > (member.oneOnOneSessionAllowance ?? 6)) {
+    return { success: false as const, error: `This membership includes ${member.oneOnOneSessionAllowance ?? 6} 1-on-1 sessions.` };
   }
   if (!coordinator?.active) {
     return { success: false as const, error: "Choose an active CRM employee as coordinator." };

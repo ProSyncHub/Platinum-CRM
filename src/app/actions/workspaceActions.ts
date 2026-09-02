@@ -517,6 +517,9 @@ export async function transferWithCommunication(
         assignedToUser: preparedFollowUp.assignee.id,
         assignedToName: preparedFollowUp.assignee.name,
         assignedToEmail: preparedFollowUp.assignee.email,
+        createdByUser: session.user.id || null,
+        createdByName: session.user.name || "Staff Member",
+        createdByEmail: session.user.email || "",
         reason,
         priority: data.priority,
         status: "pending",
@@ -537,6 +540,10 @@ export async function transferWithCommunication(
         staffDepartment: fromDepartment,
       },
       select: { id: true },
+    });
+    await prisma.queryTransfer.update({
+      where: { id: transfer.id },
+      data: { sourceCallLogId: callLog.id },
     });
     await prisma.member.update({
       where: { id: memberId },

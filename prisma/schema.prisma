@@ -8,15 +8,31 @@ datasource db {
 }
 
 model User {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  name       String
-  email      String   @unique
-  password   String
-  department String // management, sales, operations, support, research, sourcing, etc.
-  role       String // admin, manager, employee
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                  String          @id @default(auto()) @map("_id") @db.ObjectId
+  name                String
+  email               String          @unique
+  password            String
+  department          String // management, sales, operations, support, research, sourcing, etc.
+  role                String // owner, admin, manager, employee
+  permissionRoleId    String?         @db.ObjectId
+  permissionRole      PermissionRole? @relation(fields: [permissionRoleId], references: [id], onDelete: SetNull)
+  permissionOverrides String? // JSON map of individual capability grants/denials
+  active              Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+}
+
+model PermissionRole {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  key             String   @unique // owner, admin, manager, employee
+  name            String
+  description     String?
+  scope           String   @default("organization") // organization, department, assigned_work
+  permissionsJson String // Full JSON map for this reusable role
+  system          Boolean  @default(true)
+  users           User[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model Member {
@@ -39,8 +55,9 @@ model Member {
   holdReason    String?
 
   // Executive Assignment & Sessions
-  allotedTo        String? // Assigned staff member (e.g. Samyak, Mayank, Jaanvi, Muskaan, etc.)
-  oneOnOneSessions Int     @default(0) // AB 1 on 1 Session count
+  allotedTo                String? // Assigned staff member (e.g. Samyak, Mayank, Jaanvi, Muskaan, etc.)
+  oneOnOneSessions         Int     @default(0) // AB 1 on 1 Session count
+  oneOnOneSessionAllowance Int     @default(6) // Total 1-on-1 sessions included in this membership
 
   // Business, Sourcing & Brands
   businessType        String? // Reseller, Private label, Both
@@ -489,9 +506,13 @@ model QueryTransfer {
   assignedToUser  String? @db.ObjectId
   assignedToName  String?
   assignedToEmail String?
+  createdByUser   String? @db.ObjectId
+  createdByName   String?
+  createdByEmail  String?
   priority        String  @default("medium") // low, medium, high, urgent
 
   reason           String
+  sourceCallLogId  String?   @db.ObjectId // Communication that created this query; preserves the original customer context
   status           String    @default("pending") // pending, resolved
   resolutionNotes  String?
   resolutionMedium String?
@@ -500,6 +521,12 @@ model QueryTransfer {
   resolvedAt       DateTime?
 
   createdAt DateTime @default(now())
+
+  @@index([sourceCallLogId])
+  @@index([assignedToUser, status, createdAt])
+  @@index([createdByUser, status, createdAt])
+  @@index([toDepartment, status, createdAt])
+  @@index([memberId, createdAt])
 }
 
 model FollowUpTask {

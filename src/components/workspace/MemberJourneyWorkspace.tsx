@@ -38,6 +38,7 @@ interface MemberJourneyWorkspaceProps {
     department: string;
   }>;
   oneOnOneSessions: OneOnOneSessionView[];
+  canManageOneOnOnes: boolean;
 }
 
 interface CallLogEntry {
@@ -83,6 +84,7 @@ interface WorkspaceMember {
   memberCode: string;
   programType: string;
   oneOnOneSessions: number;
+  oneOnOneSessionAllowance?: number | null;
   approvalStatus?: string | null;
   activeStatus: string;
   currentStage: string;
@@ -146,6 +148,7 @@ export default function MemberJourneyWorkspace({
   departments,
   contactStaffOptions,
   oneOnOneSessions,
+  canManageOneOnOnes,
 }: MemberJourneyWorkspaceProps) {
   const router = useRouter();
   const [communicationOpen, setCommunicationOpen] = useState(false);
@@ -309,10 +312,12 @@ export default function MemberJourneyWorkspace({
           memberCode: member.memberCode,
           programType: member.programType,
           oneOnOneSessions: member.oneOnOneSessions || 0,
+          oneOnOneSessionAllowance: member.oneOnOneSessionAllowance,
         }}
         user={user}
         sessions={oneOnOneSessions}
         staffOptions={contactStaffOptions}
+        canManageOneOnOnes={canManageOneOnOnes}
       />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

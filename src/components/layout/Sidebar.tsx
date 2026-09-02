@@ -10,7 +10,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = session?.user?.role?.trim().toLowerCase();
-  const isAdmin = role === "admin" || role === "superadmin";
+  const isAdmin = role === "owner" || role === "admin" || role === "superadmin";
   const canManageTeam = isAdmin || role === "manager";
 
   return (

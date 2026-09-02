@@ -10,7 +10,7 @@ import { syncWorkforceStaffToCRM } from "@/lib/workforce";
 // Helper to check admin access
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !["admin", "superadmin"].includes(session.user.role)) {
+  if (!session?.user || !["owner", "admin", "superadmin"].includes(session.user.role)) {
     throw new Error("Forbidden: Admin access required.");
   }
   return session.user;
@@ -19,7 +19,7 @@ async function requireAdmin() {
 // Helper to check staff access (Admin or Manager)
 async function requireStaff() {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !["admin", "superadmin", "manager"].includes(session.user.role)) {
+  if (!session?.user || !["owner", "admin", "superadmin", "manager"].includes(session.user.role)) {
     throw new Error("Forbidden: Staff access required.");
   }
   return session.user;
@@ -27,7 +27,7 @@ async function requireStaff() {
 
 export async function getAllTeamMembers() {
   const viewer = await requireStaff();
-  const isAdmin = ["admin", "superadmin"].includes(
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
     viewer.role?.trim().toLowerCase() || "",
   );
   const department = viewer.department?.trim().toLowerCase() || "operations";

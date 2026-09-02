@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import {
-  ArrowRight,
   ArrowRightLeft,
   CalendarClock,
   PhoneCall,
@@ -37,15 +36,8 @@ export default async function FollowUpOverviewPanel() {
         ? {
             OR: [
               { assignedToUser: viewerId },
-              { createdByUser: viewerId },
               {
                 assignedToDepartment: {
-                  equals: department,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                createdByDepartment: {
                   equals: department,
                   mode: "insensitive" as const,
                 },
@@ -53,10 +45,7 @@ export default async function FollowUpOverviewPanel() {
             ],
           }
         : {
-          OR: [
-            { assignedToUser: viewerId },
-            { createdByUser: viewerId },
-          ],
+          assignedToUser: viewerId,
         }),
   };
   const [tasks, selfCount, transferredCount] = await Promise.all([
@@ -68,6 +57,7 @@ export default async function FollowUpOverviewPanel() {
       priority: true,
       dueAt: true,
       sourceType: true,
+      sourceTransferId: true,
       assignmentType: true,
       assignedToUser: true,
       assignedToName: true,
@@ -129,13 +119,6 @@ export default async function FollowUpOverviewPanel() {
             </p>
           </div>
         </div>
-        <Link
-          href="/followups"
-          className="inline-flex items-center gap-2 self-start rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800"
-        >
-          Open all tasks
-          <ArrowRight className="h-4 w-4 text-amber-400" />
-        </Link>
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
@@ -149,28 +132,28 @@ export default async function FollowUpOverviewPanel() {
           return (
             <Link
               key={task.id}
-              href={`/workspace/${task.member.id}`}
+              href={isTransferred && task.sourceTransferId ? `/queries/${task.sourceTransferId}` : `/workspace/${task.member.id}`}
               className="group rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-amber-300 hover:bg-amber-50/40"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold uppercase ${
-                      isMine
-                        ? "bg-amber-100 text-amber-800"
-                        : isTransferred
+                      isTransferred
                           ? "bg-violet-100 text-violet-800"
+                        : isMine
+                          ? "bg-amber-100 text-amber-800"
                           : "bg-blue-100 text-blue-800"
                     }`}
                   >
-                    {isMine ? (
-                      <PhoneCall className="h-3 w-3" />
-                    ) : isTransferred ? (
+                    {isTransferred ? (
                       <ArrowRightLeft className="h-3 w-3" />
+                    ) : isMine ? (
+                      <PhoneCall className="h-3 w-3" />
                     ) : (
                       <UserRound className="h-3 w-3" />
                     )}
-                    {isMine ? "Your task" : isTransferred ? "Transferred" : "Team task"}
+                    {isTransferred ? "Transferred query" : isMine ? "Your task" : "Team task"}
                   </span>
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${priority.badgeClass}`}
@@ -192,7 +175,7 @@ export default async function FollowUpOverviewPanel() {
                   {task.member.memberCode} · {task.member.phone || "No phone"}
                 </p>
                 <p className="mt-2 text-sm font-medium text-slate-700">
-                  {task.title}
+                  {isTransferred ? "Open issue and original communication" : task.title}
                 </p>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-xs">

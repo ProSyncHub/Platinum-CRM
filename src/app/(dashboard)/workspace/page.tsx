@@ -8,7 +8,7 @@ import FollowUpOverviewPanel from "@/components/dashboard/FollowUpOverviewPanel"
 export default async function MemberWorkspacePage() {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role?.trim().toLowerCase() || "employee";
-  const isAdmin = role === "admin" || role === "superadmin";
+  const isAdmin = role === "owner" || role === "admin" || role === "superadmin";
   const [{ programs }, pendingApprovals] = await Promise.all([
     getAllPrograms(),
     isAdmin

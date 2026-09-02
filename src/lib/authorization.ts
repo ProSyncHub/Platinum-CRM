@@ -17,12 +17,12 @@ export function normalizeDepartment(department?: string | null) {
 
 export function isElevatedViewer(user?: Viewer | null) {
   const role = user?.role?.trim().toLowerCase();
-  return role === "admin" || role === "superadmin" || role === "manager";
+  return role === "owner" || role === "admin" || role === "superadmin" || role === "manager";
 }
 
 export function isAdminViewer(user?: Viewer | null) {
   const role = user?.role?.trim().toLowerCase();
-  return role === "admin" || role === "superadmin";
+  return role === "owner" || role === "admin" || role === "superadmin";
 }
 
 export function isManagerViewer(user?: Viewer | null) {

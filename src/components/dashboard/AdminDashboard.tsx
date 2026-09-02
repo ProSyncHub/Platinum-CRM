@@ -13,6 +13,7 @@ import {
   Building,
   Sparkles,
   Handshake,
+  Inbox,
 } from "lucide-react";
 import { getAllPrograms } from "@/app/actions/programActions";
 import AdminProgramManager from "@/components/programs/AdminProgramManager";
@@ -113,6 +114,13 @@ export default async function AdminDashboard() {
           >
             <UserPlus size={15} className="text-amber-400" />
             Manage Staff & Team
+          </Link>
+          <Link
+            href="/queries"
+            className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-xs font-bold text-violet-800 transition-colors hover:bg-violet-100"
+          >
+            <Inbox size={15} />
+            Query Control
           </Link>
           <Link
             href="/members"

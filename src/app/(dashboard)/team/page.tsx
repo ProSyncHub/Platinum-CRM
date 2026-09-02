@@ -1,14 +1,16 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getAllTeamMembers } from "@/app/actions/userManagement";
+import { getAccessControlSettings } from "@/app/actions/accessControlActions";
 import TeamTable from "@/components/team/TeamTable";
+import AccessControlPanel from "@/components/team/AccessControlPanel";
 import { ShieldAlert, Sparkles } from "lucide-react";
 
 export default async function TeamPage() {
   const session = await getServerSession(authOptions);
 
   const role = session?.user?.role?.trim().toLowerCase();
-  if (!session?.user || (!["admin", "superadmin", "manager"].includes(role || ""))) {
+  if (!session?.user || (!["owner", "admin", "superadmin", "manager"].includes(role || ""))) {
     return (
       <div className="flex h-[60vh] flex-col items-center justify-center text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/20 text-rose-400 mb-3 border border-rose-500/30">
@@ -22,7 +24,11 @@ export default async function TeamPage() {
     );
   }
 
-  const { users, stats } = await getAllTeamMembers();
+  const canConfigureAccess = ["owner", "admin", "superadmin"].includes(role || "");
+  const [{ users, stats }, accessSettings] = await Promise.all([
+    getAllTeamMembers(),
+    canConfigureAccess ? getAccessControlSettings() : Promise.resolve(null),
+  ]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -49,6 +55,7 @@ export default async function TeamPage() {
         currentUserRole={session.user.role}
         currentUserId={session.user.id}
       />
+      {accessSettings && <AccessControlPanel {...accessSettings} />}
     </div>
   );
 }

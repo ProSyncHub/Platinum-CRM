@@ -532,6 +532,7 @@ export async function updateMember(
     holdReason?: string;
     allotedTo?: string;
     oneOnOneSessions?: number;
+    oneOnOneSessionAllowance?: number;
     businessType?: string;
     brandCollaborations?: string;
     plBrand?: string;
@@ -591,6 +592,13 @@ export async function updateMember(
     if (data.endDate) updatePayload.endDate = new Date(data.endDate);
     if (data.salesData !== undefined) {
       updatePayload.salesAmount = parseSalesValue(data.salesData);
+    }
+    if (data.oneOnOneSessionAllowance !== undefined) {
+      const allowance = Number(data.oneOnOneSessionAllowance);
+      if (!Number.isInteger(allowance) || allowance < 0 || allowance > 50) {
+        return { success: false, error: "Sessions included must be a whole number from 0 to 50." };
+      }
+      updatePayload.oneOnOneSessionAllowance = allowance;
     }
 
     await prisma.member.update({
@@ -911,7 +919,6 @@ export async function logCallForMember(
       },
       select: { id: true },
     });
-
     const updateData: any = {};
     if (!previousLatestLog || interactionDate >= previousLatestLog.date) {
       updateData.lastConnectDate = interactionDate;
@@ -943,6 +950,9 @@ export async function logCallForMember(
           memberId,
           fromDepartment: staffDepartment,
           toDepartment: escalateDepartment.toLowerCase(),
+          createdByUser: staffUserId || session.user.id || null,
+          createdByName: staffName || session.user.name || "Staff Member",
+          createdByEmail: staffEmail || session.user.email || "",
           reason: escalationReason || notes || "Urgent weekly follow-up escalation",
           priority: healthStatus === "critical" ? "urgent" : "high",
           status: "pending",
@@ -1052,6 +1062,9 @@ export async function transferQuery(
         assignedToUser: preparedFollowUp.assignee.id,
         assignedToName: preparedFollowUp.assignee.name,
         assignedToEmail: preparedFollowUp.assignee.email,
+        createdByUser: session.user.id || null,
+        createdByName: session.user.name || "Staff Member",
+        createdByEmail: session.user.email || "",
         priority,
         reason: cleanedReason,
         status: "pending",
@@ -1074,6 +1087,10 @@ export async function transferQuery(
         staffUserId: session.user.id || null,
       },
       select: { id: true },
+    });
+    await prisma.queryTransfer.update({
+      where: { id: transfer.id },
+      data: { sourceCallLogId: callLog.id },
     });
 
     await saveFollowUpAssignment({
@@ -1108,25 +1125,34 @@ export async function resolveQueryTransfer(
   }
 
   try {
+    const cleanedResolution = resolutionNotes.trim();
+    if (!cleanedResolution) {
+      return { success: false, error: "Add the resolution before closing this query." };
+    }
     const transfer = await prisma.queryTransfer.findUnique({
       where: { id: transferId },
-      select: { memberId: true, toDepartment: true },
+      select: { memberId: true, toDepartment: true, assignedToUser: true, status: true },
     });
     if (!transfer || !(await canAccessMember(session.user, transfer.memberId))) {
       return { success: false, error: "You do not have access to this transferred query." };
     }
-    if (
-      !isElevatedViewer(session.user) &&
-      normalizeDepartment(transfer.toDepartment) !== normalizeDepartment(session.user.department)
-    ) {
-      return { success: false, error: "Only the receiving department can resolve this query." };
+    const currentUserId = session.user.id || "";
+    const isAssignedPerson = Boolean(currentUserId && transfer.assignedToUser === currentUserId);
+    const isReceivingManager =
+      session.user.role?.trim().toLowerCase() === "manager" &&
+      normalizeDepartment(transfer.toDepartment) === normalizeDepartment(session.user.department);
+    if (!isAdminViewer(session.user) && !isAssignedPerson && !isReceivingManager) {
+      return { success: false, error: "Only the assigned person, receiving manager, or an administrator can resolve this query." };
+    }
+    if (transfer.status === "resolved") {
+      return { success: false, error: "This query has already been resolved." };
     }
 
     const updated = await prisma.queryTransfer.update({
       where: { id: transferId },
       data: {
         status: "resolved",
-        resolutionNotes,
+        resolutionNotes: cleanedResolution,
         resolutionMedium,
         resolvedByName: session.user.name || undefined,
         resolvedByEmail: session.user.email || undefined,
@@ -1146,7 +1172,7 @@ export async function resolveQueryTransfer(
           type: "outbound",
           medium: resolutionMedium,
           outcome: "Query Resolved",
-          notes: `[${updated.toDepartment.toUpperCase()}] Resolved query: "${updated.reason}". Resolution: ${resolutionNotes}`,
+          notes: `[${updated.toDepartment.toUpperCase()}] Resolved query: "${updated.reason}". Resolution: ${cleanedResolution}`,
           staffName: session.user.name || undefined,
           staffEmail: session.user.email || undefined,
           staffDepartment: session.user.department || updated.toDepartment,
@@ -1165,7 +1191,7 @@ export async function resolveQueryTransfer(
         completedAt: new Date(),
         completedByUser: session.user.id || null,
         completedByName: session.user.name || "Staff Member",
-        completionNotes: resolutionNotes,
+        completionNotes: cleanedResolution,
       },
     });
 
@@ -1173,6 +1199,9 @@ export async function resolveQueryTransfer(
     revalidatePath("/members");
     revalidatePath("/dashboard");
     revalidatePath("/followups");
+    revalidatePath("/queries");
+    revalidatePath(`/queries/${transferId}`);
+    revalidatePath("/workspace");
 
     return { success: true };
   } catch (err: any) {

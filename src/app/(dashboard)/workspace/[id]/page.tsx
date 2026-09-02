@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getMemberById } from "@/app/actions/memberActions";
 import { prisma } from "@/lib/db";
+import { hasUserCapability } from "@/lib/accessControl.server";
 import MemberJourneyWorkspace from "@/components/workspace/MemberJourneyWorkspace";
 
 interface Props {
@@ -17,7 +18,7 @@ export default async function MemberJourneyPage({ params }: Props) {
   if (!session?.user) notFound();
   const role = session.user.role?.trim().toLowerCase() || "employee";
 
-  const [memberResult, activeUsers, oneOnOneSessions] = await Promise.all([
+  const [memberResult, activeUsers, oneOnOneSessions, canManageOneOnOnes] = await Promise.all([
     getMemberById(id),
     prisma.user.findMany({
       where: { active: true },
@@ -54,6 +55,7 @@ export default async function MemberJourneyPage({ params }: Props) {
         completedAt: true,
       },
     }),
+    hasUserCapability(session.user, "sessions.manage"),
   ]);
 
   if (!memberResult.success || !memberResult.member) notFound();
@@ -86,6 +88,7 @@ export default async function MemberJourneyPage({ params }: Props) {
       departments={departments}
       contactStaffOptions={activeUsers}
       oneOnOneSessions={JSON.parse(JSON.stringify(oneOnOneSessions))}
+      canManageOneOnOnes={canManageOneOnOnes}
     />
   );
 }

@@ -30,6 +30,7 @@ interface EditableMember {
   phone?: string | null;
   state?: string | null;
   plan?: string | null;
+  oneOnOneSessionAllowance?: number | null;
   enrollingDate?: string | Date | null;
   endDate?: string | Date | null;
   allotedTo?: string | null;
@@ -91,6 +92,7 @@ export default function EditMemberModal({
     phone: member?.phone || "",
     state: member?.state || "",
     plan: member?.plan || "6 Months",
+    oneOnOneSessionAllowance: member?.oneOnOneSessionAllowance ?? 6,
     enrollingDate: member?.enrollingDate
       ? new Date(member.enrollingDate).toISOString().split("T")[0]
       : "",
@@ -310,7 +312,7 @@ export default function EditMemberModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 State / Location
@@ -321,6 +323,21 @@ export default function EditMemberModal({
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:border-amber-500 focus:bg-white"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Sessions Included
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="50"
+                value={formData.oneOnOneSessionAllowance}
+                onChange={(e) => setFormData({ ...formData, oneOnOneSessionAllowance: Number(e.target.value) })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:border-amber-500 focus:bg-white font-medium"
+              />
+              <p className="mt-1 text-[10px] text-slate-500">Total 1-on-1 sessions in this membership.</p>
             </div>
 
             <div>

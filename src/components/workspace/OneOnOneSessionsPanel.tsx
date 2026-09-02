@@ -55,6 +55,7 @@ interface Props {
     memberCode: string;
     programType: string;
     oneOnOneSessions: number;
+    oneOnOneSessionAllowance?: number | null;
   };
   user: { id: string; name: string; role: string; department: string };
   sessions: OneOnOneSessionView[];
@@ -64,6 +65,7 @@ interface Props {
     email: string;
     department: string;
   }>;
+  canManageOneOnOnes?: boolean;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -116,6 +118,7 @@ export default function OneOnOneSessionsPanel({
   user,
   sessions,
   staffOptions,
+  canManageOneOnOnes,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -138,10 +141,8 @@ export default function OneOnOneSessionsPanel({
       .map((session) => session.sessionNumber),
   ).size;
   const completed = Math.max(member.oneOnOneSessions || 0, verifiedCompleted);
-  const role = user.role.trim().toLowerCase();
-  const canManage =
-    ["admin", "superadmin", "manager"].includes(role) ||
-    user.department.trim().toLowerCase() === "management";
+  const allowance = Math.max(0, member.oneOnOneSessionAllowance ?? 6);
+  const canManage = canManageOneOnOnes === true;
   const eligible =
     member.programType.toLowerCase().includes("platinum") ||
     member.memberCode.toUpperCase().startsWith("PLT");
@@ -192,12 +193,12 @@ export default function OneOnOneSessionsPanel({
         </div>
         <div className="rounded-2xl bg-slate-950 px-4 py-3 text-white">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Verified entitlement</p>
-          <p className="mt-1 text-xl font-black">{Math.min(6, completed)} of 6 completed</p>
+          <p className="mt-1 text-xl font-black">{Math.min(allowance, completed)} of {allowance} completed</p>
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 6 }, (_, index) => index + 1).map((sessionNumber) => {
+        {Array.from({ length: allowance }, (_, index) => index + 1).map((sessionNumber) => {
           const session = latestBySlot.get(sessionNumber);
           const legacyCompleted = !session && sessionNumber <= (member.oneOnOneSessions || 0);
           const status = session?.status || (legacyCompleted ? "completed" : "available");
@@ -207,7 +208,7 @@ export default function OneOnOneSessionsPanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Session {sessionNumber} of 6
+                    Session {sessionNumber} of {allowance}
                   </p>
                   <p className="mt-1 font-bold text-slate-950">
                     {session

@@ -31,12 +31,11 @@ import {
   ExternalLink,
   Flame,
 } from "lucide-react";
-import LogCallModal from "./LogCallModal";
-import TransferQueryModal from "./TransferQueryModal";
 import AdvanceStageModal from "./AdvanceStageModal";
 import EditMemberModal from "./EditMemberModal";
 import ResolveQueryModal from "./ResolveQueryModal";
 import EditCallLogModal from "./EditCallLogModal";
+import { QuickCommunicationModal } from "@/components/workspace/WorkspaceActionModals";
 import MemberServicesCard from "@/components/services/MemberServicesCard";
 import OneOnOneSessionsPanel, {
   type OneOnOneSessionView,
@@ -60,6 +59,8 @@ interface MemberDetailClientProps {
   availableServicePartners?: ServicePartnerView[];
   contactStaffOptions?: AssignableStaffView[];
   oneOnOneSessions?: OneOnOneSessionView[];
+  canManageOneOnOnes?: boolean;
+  departments?: string[];
 }
 
 const CRM_TIME_ZONE = "Asia/Kolkata";
@@ -99,6 +100,8 @@ export default function MemberDetailClient({
   availableServicePartners = [],
   contactStaffOptions = [],
   oneOnOneSessions = [],
+  canManageOneOnOnes = false,
+  departments = [],
 }: MemberDetailClientProps) {
   const [member, setMember] = useState(initialMember);
   const normalizedRole = userRole.trim().toLowerCase();
@@ -106,8 +109,7 @@ export default function MemberDetailClient({
   const isElevatedUser = isSuperAdmin || normalizedRole === "manager";
 
   // Modals state
-  const [isLogCallOpen, setIsLogCallOpen] = useState(false);
-  const [isTransferOpen, setIsTransferOpen] = useState(false);
+  const [isCommunicationOpen, setIsCommunicationOpen] = useState(false);
   const [isAdvanceStageOpen, setIsAdvanceStageOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [resolvingTransfer, setResolvingTransfer] = useState<any | null>(null);
@@ -269,11 +271,11 @@ export default function MemberDetailClient({
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
             <button
-              onClick={() => setIsLogCallOpen(true)}
+              onClick={() => setIsCommunicationOpen(true)}
               className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-all cursor-pointer"
             >
               <PhoneCall className="w-4 h-4 text-amber-400" />
-              Log Communication
+              Log / transfer
             </button>
 
             <a
@@ -285,14 +287,6 @@ export default function MemberDetailClient({
               <MessageSquare className="w-4 h-4 text-emerald-600" />
               WhatsApp
             </a>
-
-            <button
-              onClick={() => setIsTransferOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-all cursor-pointer"
-            >
-              <SendHorizontal className="w-4 h-4 text-purple-600" />
-              Transfer Query
-            </button>
 
             {isElevatedUser && (
               <>
@@ -373,6 +367,7 @@ export default function MemberDetailClient({
           memberCode: member.memberCode,
           programType: member.programType,
           oneOnOneSessions: member.oneOnOneSessions || 0,
+          oneOnOneSessionAllowance: member.oneOnOneSessionAllowance,
         }}
         user={{
           id: currentUserId || "",
@@ -382,6 +377,7 @@ export default function MemberDetailClient({
         }}
         sessions={oneOnOneSessions}
         staffOptions={contactStaffOptions}
+        canManageOneOnOnes={canManageOneOnOnes}
       />
 
       {/* Profile Metrics & Details Grid */}
@@ -489,10 +485,10 @@ export default function MemberDetailClient({
                 </p>
               </div>
               <button
-                onClick={() => setIsLogCallOpen(true)}
+                onClick={() => setIsCommunicationOpen(true)}
                 className="text-xs text-slate-900 hover:text-amber-700 font-bold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors cursor-pointer"
               >
-                + Log Communication
+                + Log / transfer
               </button>
             </div>
 
@@ -656,10 +652,10 @@ export default function MemberDetailClient({
                 </p>
               </div>
               <button
-                onClick={() => setIsTransferOpen(true)}
+                onClick={() => setIsCommunicationOpen(true)}
                 className="text-xs text-purple-700 hover:text-purple-900 font-bold bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl border border-purple-200 transition-colors cursor-pointer"
               >
-                + Transfer
+                + Log / transfer
               </button>
             </div>
 
@@ -760,24 +756,21 @@ export default function MemberDetailClient({
       </div>
 
       {/* Modals */}
-      <LogCallModal
-        isOpen={isLogCallOpen}
-        onClose={() => setIsLogCallOpen(false)}
-        memberId={member.id}
-        memberName={member.fullName}
-        memberPhone={member.phone}
-        currentUserRole={userRole}
-        currentUserId={currentUserId}
+      <QuickCommunicationModal
+        isOpen={isCommunicationOpen}
+        onClose={() => setIsCommunicationOpen(false)}
+        member={{
+          id: member.id,
+          fullName: member.fullName,
+          phone: member.phone,
+        }}
+        user={{
+          id: currentUserId || "",
+          role: userRole,
+          department: userDepartment,
+        }}
         contactStaffOptions={contactStaffOptions}
-        onSuccess={reloadData}
-      />
-
-      <TransferQueryModal
-        isOpen={isTransferOpen}
-        onClose={() => setIsTransferOpen(false)}
-        memberId={member.id}
-        memberName={member.fullName}
-        currentDept={userDepartment}
+        departments={departments.filter((department) => department !== userDepartment.toLowerCase())}
         onSuccess={reloadData}
       />
 

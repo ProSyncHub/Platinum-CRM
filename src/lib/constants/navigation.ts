@@ -4,10 +4,10 @@ import {
   Search,
   ShieldCheck,
   Phone,
-  CalendarCheck,
   BarChart3,
   Handshake,
   Inbox,
+  Send,
 } from "lucide-react";
 
 export const navigation = [
@@ -37,9 +37,9 @@ export const navigation = [
     icon: Phone,
   },
   {
-    title: "Followups",
-    href: "/followups",
-    icon: CalendarCheck,
+    title: "Queries",
+    href: "/queries",
+    icon: Send,
   },
   {
     title: "Partner Services",

@@ -20,6 +20,7 @@ import {
   Phone,
   Flame,
   CheckCircle2,
+  Inbox,
 } from "lucide-react";
 
 interface EmployeeDashboardProps {
@@ -135,6 +136,13 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
         >
           <span>All Members Directory</span>
           <ArrowRight className="w-4 h-4 text-amber-400" />
+        </Link>
+        <Link
+          href="/queries"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-800 font-bold text-xs transition-all self-start sm:self-auto"
+        >
+          <Inbox className="w-4 h-4" />
+          My Queries
         </Link>
       </div>
 

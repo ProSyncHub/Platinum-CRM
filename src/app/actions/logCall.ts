@@ -28,7 +28,7 @@ export async function logCall(data: {
     throw new Error("You do not have access to this member");
   }
 
-  await prisma.callLog.create({
+  const callLog = await prisma.callLog.create({
     data: {
       memberId,
       type,
@@ -37,7 +37,9 @@ export async function logCall(data: {
       staffName: session.user.name || undefined,
       staffEmail: session.user.email || undefined,
       staffDepartment: normalizeDepartment(session.user.department),
+      staffUserId: session.user.id || null,
     },
+    select: { id: true },
   });
 
   await prisma.member.update({
@@ -55,6 +57,10 @@ export async function logCall(data: {
         fromDepartment: normalizeDepartment(session.user.department),
         toDepartment: normalizeDepartment(toDepartment),
         assignedToUser: assignedToUser || null,
+        createdByUser: session.user.id || null,
+        createdByName: session.user.name || "Staff Member",
+        createdByEmail: session.user.email || "",
+        sourceCallLogId: callLog.id,
         reason,
         status: "pending",
       },

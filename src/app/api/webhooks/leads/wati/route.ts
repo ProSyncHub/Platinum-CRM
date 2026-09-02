@@ -11,7 +11,8 @@ function readSecret(request: Request) {
   const bearer = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
-  return request.headers.get("x-wati-secret")?.trim() || bearer;
+  const urlSecret = new URL(request.url).searchParams.get("secret")?.trim() || "";
+  return request.headers.get("x-wati-secret")?.trim() || bearer || urlSecret;
 }
 
 function safeSecretMatch(received: string, expected: string) {
