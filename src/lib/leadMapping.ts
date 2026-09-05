@@ -174,8 +174,10 @@ export function normalizeLeadResponse(value?: string | null): LeadResponseCode {
   }
   if (
     normalized.includes("will pay shortly") ||
+    normalized.includes("will pay later") ||
     normalized.includes("pay shortly") ||
     normalized.includes("will pay soon") ||
+    normalized.includes("will pay") ||
     normalized.includes("pay later")
   ) {
     return "will_pay_shortly";

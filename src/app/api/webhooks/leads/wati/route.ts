@@ -6,13 +6,13 @@ import { normalizeWatiLeadPayload } from "@/lib/watiLeads";
 
 export const runtime = "nodejs";
 
-function readSecret(request: Request) {
+function readSecret(request: Request, explicitSecret?: string) {
   const authorization = request.headers.get("authorization") || "";
   const bearer = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
   const urlSecret = new URL(request.url).searchParams.get("secret")?.trim() || "";
-  return request.headers.get("x-wati-secret")?.trim() || bearer || urlSecret;
+  return request.headers.get("x-wati-secret")?.trim() || bearer || urlSecret || explicitSecret?.trim() || "";
 }
 
 function safeSecretMatch(received: string, expected: string) {
@@ -21,7 +21,7 @@ function safeSecretMatch(received: string, expected: string) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-export async function POST(request: Request) {
+export async function handleWatiLeadWebhook(request: Request, explicitSecret?: string) {
   const configuredSecret = process.env.WATI_WEBHOOK_SECRET?.trim();
   if (!configuredSecret) {
     return NextResponse.json(
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!safeSecretMatch(readSecret(request), configuredSecret)) {
+  if (!safeSecretMatch(readSecret(request, explicitSecret), configuredSecret)) {
     return NextResponse.json({ accepted: false, error: "Invalid webhook secret" }, { status: 401 });
   }
 
@@ -66,6 +66,10 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ accepted: true, ...result });
+}
+
+export async function POST(request: Request) {
+  return handleWatiLeadWebhook(request);
 }
 
 export async function GET() {
