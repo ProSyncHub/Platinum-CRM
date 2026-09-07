@@ -20,6 +20,11 @@ import {
   scheduleOneOnOneSession,
   syncOneOnOneSession,
 } from "@/app/actions/oneOnOneActions";
+import {
+  DEFAULT_ZOOM_MEETING_SETTINGS,
+  parseZoomMeetingSettings,
+  type ZoomMeetingSettings,
+} from "@/lib/zoomMeetingSettings";
 
 export interface OneOnOneSessionView {
   id: string;
@@ -40,6 +45,7 @@ export interface OneOnOneSessionView {
   coordinatorEmail: string;
   zoomMeetingId?: string | null;
   joinUrl?: string | null;
+  meetingSettingsJson?: string | null;
   transcriptStatus: string;
   aiStatus: string;
   aiSummary?: string | null;
@@ -340,6 +346,7 @@ export default function OneOnOneSessionsPanel({
                     sessionId: editing.session!.id,
                     scheduledStart: indiaLocalToIso(values.scheduledStart),
                     plannedDuration: values.plannedDuration,
+                    zoomSettings: values.zoomSettings,
                   }),
                 `Session ${editing.sessionNumber} rescheduled.`,
               );
@@ -355,6 +362,7 @@ export default function OneOnOneSessionsPanel({
                   memberQuestions: values.memberQuestions,
                   preparationNotes: values.preparationNotes,
                   coordinatorUserId: values.coordinatorUserId,
+                  zoomSettings: values.zoomSettings,
                 }),
               `Session ${editing.sessionNumber} scheduled in Zoom.`,
             );
@@ -388,15 +396,23 @@ function ScheduleSessionModal({
     memberQuestions: string;
     preparationNotes: string;
     coordinatorUserId: string;
+    zoomSettings: ZoomMeetingSettings;
   }) => void;
 }) {
   const [scheduledStart, setScheduledStart] = useState(toLocalInput(session?.scheduledStart));
   const [plannedDuration, setPlannedDuration] = useState(session?.plannedDuration || 60);
   const [memberQuestions, setMemberQuestions] = useState(session?.memberQuestions || "");
   const [preparationNotes, setPreparationNotes] = useState(session?.preparationNotes || "");
+  const [zoomSettings, setZoomSettings] = useState<ZoomMeetingSettings>(
+    session?.meetingSettingsJson ? parseZoomMeetingSettings(session.meetingSettingsJson) : DEFAULT_ZOOM_MEETING_SETTINGS,
+  );
   const [coordinatorUserId, setCoordinatorUserId] = useState(
     session?.coordinatorUserId || user.id,
   );
+
+  function setZoomSetting<K extends keyof ZoomMeetingSettings>(key: K, value: ZoomMeetingSettings[K]) {
+    setZoomSettings((current) => ({ ...current, [key]: value }));
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
@@ -430,6 +446,7 @@ function ScheduleSessionModal({
               memberQuestions,
               preparationNotes,
               coordinatorUserId,
+              zoomSettings,
             });
           }}
           className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[0.8fr_1.2fr]"
@@ -452,7 +469,7 @@ function ScheduleSessionModal({
                 onChange={(event) => setPlannedDuration(Number(event.target.value))}
                 className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-indigo-500"
               >
-                {[30, 45, 60, 75, 90, 120].map((minutes) => (
+                {[5, 10, 15, 30, 45, 60, 75, 90, 120].map((minutes) => (
                   <option key={minutes} value={minutes}>{minutes} minutes</option>
                 ))}
               </select>
@@ -476,6 +493,54 @@ function ScheduleSessionModal({
             )}
             <div className="rounded-2xl bg-indigo-50 p-4 text-xs leading-5 text-indigo-900">
               Zoom will create a unique meeting under Amar Sir. After the meeting, attendance, verified minutes, transcript and CRM notes are synchronized automatically.
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-black text-slate-900">Zoom settings</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                These are applied when CRM creates or reschedules the Zoom meeting. Zoom AI/My Notes still depends on the account-level Zoom settings being enabled.
+              </p>
+              <div className="mt-4 space-y-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.hostVideo} onChange={(event) => setZoomSetting("hostVideo", event.target.checked)} />
+                  Host video on
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.participantVideo} onChange={(event) => setZoomSetting("participantVideo", event.target.checked)} />
+                  Participant video on
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.defaultPassword} onChange={(event) => setZoomSetting("defaultPassword", event.target.checked)} />
+                  Use generated passcode
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.waitingRoom} onChange={(event) => setZoomSetting("waitingRoom", event.target.checked)} />
+                  Waiting room
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.muteUponEntry} onChange={(event) => setZoomSetting("muteUponEntry", event.target.checked)} />
+                  Mute participants on entry
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.joinBeforeHost} onChange={(event) => setZoomSetting("joinBeforeHost", event.target.checked)} />
+                  Allow participant to join before host
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={zoomSettings.meetingAuthentication} onChange={(event) => setZoomSetting("meetingAuthentication", event.target.checked)} />
+                  Require Zoom sign-in/authentication
+                </label>
+                <label className="block pt-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                  Automatic recording
+                  <select
+                    value={zoomSettings.autoRecording}
+                    onChange={(event) => setZoomSetting("autoRecording", event.target.value as ZoomMeetingSettings["autoRecording"])}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal"
+                  >
+                    <option value="cloud">In the cloud</option>
+                    <option value="local">On the local computer</option>
+                    <option value="none">Do not auto record</option>
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
 

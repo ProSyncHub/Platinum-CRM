@@ -1,4 +1,8 @@
 import "server-only";
+import {
+  sanitizeZoomMeetingSettings,
+  type ZoomMeetingSettings,
+} from "@/lib/zoomMeetingSettings";
 
 const ZOOM_API_BASE = "https://api.zoom.us/v2";
 const ZOOM_TOKEN_URL = "https://zoom.us/oauth/token";
@@ -164,6 +168,7 @@ export interface CreateZoomMeetingInput {
   startTime: Date;
   durationMinutes: number;
   timezone?: string;
+  settings?: Partial<ZoomMeetingSettings>;
 }
 
 export interface ZoomMeeting {
@@ -200,6 +205,7 @@ export async function createZoomMeeting(input: CreateZoomMeetingInput) {
   const config = getZoomConfiguration();
   const host = encodeURIComponent(config.hostUserId);
   const timezone = input.timezone || config.timezone;
+  const settings = sanitizeZoomMeetingSettings(input.settings, config.autoRecording);
   return zoomRequest<ZoomMeeting>(`/users/${host}/meetings`, {
     method: "POST",
     body: JSON.stringify({
@@ -209,15 +215,15 @@ export async function createZoomMeeting(input: CreateZoomMeetingInput) {
       duration: input.durationMinutes,
       timezone,
       agenda: input.agenda || "ProSync Platinum 1-on-1 session",
-      default_password: true,
+      default_password: settings.defaultPassword,
       settings: {
-        host_video: true,
-        participant_video: true,
-        join_before_host: false,
-        mute_upon_entry: true,
-        waiting_room: true,
-        auto_recording: config.autoRecording,
-        meeting_authentication: false,
+        host_video: settings.hostVideo,
+        participant_video: settings.participantVideo,
+        join_before_host: settings.joinBeforeHost,
+        mute_upon_entry: settings.muteUponEntry,
+        waiting_room: settings.waitingRoom,
+        auto_recording: settings.autoRecording,
+        meeting_authentication: settings.meetingAuthentication,
       },
     }),
   });
@@ -225,16 +231,27 @@ export async function createZoomMeeting(input: CreateZoomMeetingInput) {
 
 export async function updateZoomMeeting(
   meetingId: string,
-  input: Pick<CreateZoomMeetingInput, "startTime" | "durationMinutes" | "timezone">,
+  input: Pick<CreateZoomMeetingInput, "startTime" | "durationMinutes" | "timezone" | "settings">,
 ) {
   const config = getZoomConfiguration();
   const timezone = input.timezone || config.timezone;
+  const settings = sanitizeZoomMeetingSettings(input.settings, config.autoRecording);
   await zoomRequest<null>(`/meetings/${encodeURIComponent(meetingId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       start_time: formatDateTimeForZoomTimezone(input.startTime, timezone),
       duration: input.durationMinutes,
       timezone,
+      default_password: settings.defaultPassword,
+      settings: {
+        host_video: settings.hostVideo,
+        participant_video: settings.participantVideo,
+        join_before_host: settings.joinBeforeHost,
+        mute_upon_entry: settings.muteUponEntry,
+        waiting_room: settings.waitingRoom,
+        auto_recording: settings.autoRecording,
+        meeting_authentication: settings.meetingAuthentication,
+      },
     }),
   });
 }

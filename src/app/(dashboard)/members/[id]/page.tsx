@@ -60,6 +60,7 @@ export default async function MemberDetailsPage({ params }: Props) {
         coordinatorEmail: true,
         zoomMeetingId: true,
         joinUrl: true,
+        meetingSettingsJson: true,
         transcriptStatus: true,
         aiStatus: true,
         aiSummary: true,

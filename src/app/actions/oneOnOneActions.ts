@@ -9,6 +9,11 @@ import { prisma } from "@/lib/db";
 import { reconcileOneOnOneSession } from "@/lib/oneOnOneSessions";
 import { hasUserCapability } from "@/lib/accessControl.server";
 import {
+  parseZoomMeetingSettings,
+  sanitizeZoomMeetingSettings,
+  type ZoomMeetingSettings,
+} from "@/lib/zoomMeetingSettings";
+import {
   createZoomMeeting,
   deleteZoomMeeting,
   getZoomConfiguration,
@@ -29,16 +34,36 @@ const scheduleSchema = z.object({
   memberId: z.string().regex(OBJECT_ID),
   sessionNumber: z.coerce.number().int().min(1).max(6),
   scheduledStart: z.coerce.date(),
-  plannedDuration: z.coerce.number().int().min(15).max(240).default(60),
+  plannedDuration: z.coerce.number().int().min(5).max(240).default(60),
   memberQuestions: z.string().trim().max(5_000).optional().default(""),
   preparationNotes: z.string().trim().max(8_000).optional().default(""),
   coordinatorUserId: z.string().regex(OBJECT_ID).optional(),
+  zoomSettings: z.object({
+    hostVideo: z.boolean().optional(),
+    participantVideo: z.boolean().optional(),
+    joinBeforeHost: z.boolean().optional(),
+    muteUponEntry: z.boolean().optional(),
+    waitingRoom: z.boolean().optional(),
+    meetingAuthentication: z.boolean().optional(),
+    defaultPassword: z.boolean().optional(),
+    autoRecording: z.enum(["cloud", "local", "none"]).optional(),
+  }).optional(),
 });
 
 const rescheduleSchema = z.object({
   sessionId: z.string().regex(OBJECT_ID),
   scheduledStart: z.coerce.date(),
-  plannedDuration: z.coerce.number().int().min(15).max(240),
+  plannedDuration: z.coerce.number().int().min(5).max(240),
+  zoomSettings: z.object({
+    hostVideo: z.boolean().optional(),
+    participantVideo: z.boolean().optional(),
+    joinBeforeHost: z.boolean().optional(),
+    muteUponEntry: z.boolean().optional(),
+    waitingRoom: z.boolean().optional(),
+    meetingAuthentication: z.boolean().optional(),
+    defaultPassword: z.boolean().optional(),
+    autoRecording: z.enum(["cloud", "local", "none"]).optional(),
+  }).optional(),
 });
 
 function isEligiblePlatinumMember(member: { programType: string; memberCode: string }) {
@@ -77,6 +102,7 @@ export async function scheduleOneOnOneSession(input: {
   memberQuestions?: string;
   preparationNotes?: string;
   coordinatorUserId?: string;
+  zoomSettings?: Partial<ZoomMeetingSettings>;
 }) {
   const manager = await requireSessionManager();
   if (!manager.success) return manager;
@@ -173,6 +199,7 @@ export async function scheduleOneOnOneSession(input: {
       plannedDuration: parsed.data.plannedDuration,
       memberQuestions: parsed.data.memberQuestions || null,
       preparationNotes: parsed.data.preparationNotes || null,
+      meetingSettingsJson: JSON.stringify(sanitizeZoomMeetingSettings(parsed.data.zoomSettings, config.autoRecording)),
       coordinatorUserId: coordinator.id,
       coordinatorName: coordinator.name,
       coordinatorEmail: coordinator.email,
@@ -194,6 +221,7 @@ export async function scheduleOneOnOneSession(input: {
       startTime: parsed.data.scheduledStart,
       durationMinutes: parsed.data.plannedDuration,
       timezone: config.timezone,
+      settings: parsed.data.zoomSettings,
     });
     if (!meeting.id || !meeting.join_url) {
       throw new Error("Zoom created the meeting without a usable meeting ID or join URL.");
@@ -237,6 +265,7 @@ export async function rescheduleOneOnOneSession(input: {
   sessionId: string;
   scheduledStart: string;
   plannedDuration: number;
+  zoomSettings?: Partial<ZoomMeetingSettings>;
 }) {
   const manager = await requireSessionManager();
   if (!manager.success) return manager;
@@ -258,6 +287,7 @@ export async function rescheduleOneOnOneSession(input: {
       timezone: true,
       scheduledStart: true,
       plannedDuration: true,
+      meetingSettingsJson: true,
       rescheduleHistoryJson: true,
     },
   });
@@ -272,10 +302,13 @@ export async function rescheduleOneOnOneSession(input: {
   }
 
   try {
+    const existingSettings = parseZoomMeetingSettings(crmSession.meetingSettingsJson);
+    const nextSettings = sanitizeZoomMeetingSettings(parsed.data.zoomSettings || existingSettings);
     await updateZoomMeeting(crmSession.zoomMeetingId, {
       startTime: parsed.data.scheduledStart,
       durationMinutes: parsed.data.plannedDuration,
       timezone: crmSession.timezone,
+      settings: nextSettings,
     });
     let history: unknown[] = [];
     if (crmSession.rescheduleHistoryJson) {
@@ -298,6 +331,7 @@ export async function rescheduleOneOnOneSession(input: {
       data: {
         scheduledStart: parsed.data.scheduledStart,
         plannedDuration: parsed.data.plannedDuration,
+        meetingSettingsJson: JSON.stringify(nextSettings),
         status: "scheduled",
         rescheduleHistoryJson: JSON.stringify(history.slice(-20)),
         lastError: null,

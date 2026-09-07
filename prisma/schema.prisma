@@ -412,12 +412,13 @@ model OneOnOneSession {
   coordinatorEmail      String
   coordinatorDepartment String
 
-  zoomMeetingId   String?
-  zoomMeetingUuid String?
-  zoomHostUserId  String
-  zoomHostName    String?
-  zoomHostEmail   String?
-  joinUrl         String?
+  zoomMeetingId       String?
+  zoomMeetingUuid     String?
+  zoomHostUserId      String
+  zoomHostName        String?
+  zoomHostEmail       String?
+  joinUrl             String?
+  meetingSettingsJson String?
 
   transcriptStatus String  @default("pending") // pending, processing, ready, unavailable, failed
   transcriptText   String?
