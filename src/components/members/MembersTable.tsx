@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -52,6 +52,8 @@ interface MembersTableProps {
   initialPrograms?: any[];
 }
 
+const MEMBERS_VIEW_STATE_KEY = "prosync.members.viewState.v1";
+
 export default function MembersTable({
   initialMembers,
   stats,
@@ -89,6 +91,62 @@ export default function MembersTable({
   const canManagePayments = ["owner", "admin", "superadmin", "manager"].includes(
     userRole?.trim().toLowerCase() || ""
   );
+
+  const saveViewState = () => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem(
+      MEMBERS_VIEW_STATE_KEY,
+      JSON.stringify({
+        searchTerm,
+        selectedProgram,
+        selectedStage,
+        selectedStatus,
+        selectedMedium,
+        selectedUrgency,
+        selectedExecutive,
+        selectedState,
+        page,
+        scrollY: window.scrollY,
+      }),
+    );
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = sessionStorage.getItem(MEMBERS_VIEW_STATE_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw);
+      if (typeof saved.searchTerm === "string") setSearchTerm(saved.searchTerm);
+      if (typeof saved.selectedProgram === "string") setSelectedProgram(saved.selectedProgram);
+      if (typeof saved.selectedStage === "string") setSelectedStage(saved.selectedStage);
+      if (typeof saved.selectedStatus === "string") setSelectedStatus(saved.selectedStatus);
+      if (typeof saved.selectedMedium === "string") setSelectedMedium(saved.selectedMedium);
+      if (typeof saved.selectedUrgency === "string") setSelectedUrgency(saved.selectedUrgency);
+      if (typeof saved.selectedExecutive === "string") setSelectedExecutive(saved.selectedExecutive);
+      if (typeof saved.selectedState === "string") setSelectedState(saved.selectedState);
+      if (Number.isFinite(saved.page)) setPage(Math.max(1, Number(saved.page)));
+      if (Number.isFinite(saved.scrollY)) {
+        window.requestAnimationFrame(() => window.scrollTo({ top: Number(saved.scrollY), behavior: "auto" }));
+      }
+    } catch {
+      sessionStorage.removeItem(MEMBERS_VIEW_STATE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    saveViewState();
+  }, [
+    searchTerm,
+    selectedProgram,
+    selectedStage,
+    selectedStatus,
+    selectedMedium,
+    selectedUrgency,
+    selectedExecutive,
+    selectedState,
+    page,
+  ]);
 
   // Dynamic program counts
   const dynamicProgramCounts = useMemo(() => {
@@ -303,6 +361,7 @@ export default function MembersTable({
   };
 
   const reloadData = () => {
+    saveViewState();
     window.location.reload();
   };
 
@@ -695,6 +754,7 @@ export default function MembersTable({
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/members/${m.id}`}
+                            onClick={saveViewState}
                             className="font-bold text-slate-900 hover:text-amber-600 transition-colors text-sm"
                           >
                             {m.fullName}

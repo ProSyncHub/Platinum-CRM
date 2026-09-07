@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { revalidatePath } from "next/cache";
@@ -398,13 +399,14 @@ export async function createMember(data: {
   }
 
   try {
+    const duplicateChecks: Prisma.MemberWhereInput[] = [];
+    const email = data.email?.trim();
+    const phone = data.phone?.trim();
+    if (email) duplicateChecks.push({ email: { equals: email, mode: "insensitive" } });
+    if (phone) duplicateChecks.push({ phone });
+
     const duplicate = await prisma.member.findFirst({
-      where: {
-        OR: [
-          { email: { equals: data.email.trim(), mode: "insensitive" } },
-          { phone: data.phone.trim() },
-        ],
-      },
+      where: duplicateChecks.length ? { OR: duplicateChecks } : { id: "__invalid__" },
       select: { id: true, memberCode: true },
     });
     if (duplicate) {
@@ -512,6 +514,73 @@ export async function createMember(data: {
     console.error("Error creating member:", err);
     return { success: false, error: err.message || "Failed to create member" };
   }
+}
+
+export async function createMembersBulk(rows: Array<Parameters<typeof createMember>[0]>) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, error: "Unauthorized", created: 0, skipped: 0, failed: 0, results: [] };
+  }
+
+  const results: Array<{
+    index: number;
+    name: string;
+    phone: string;
+    success: boolean;
+    memberId?: string;
+    pendingApproval?: boolean;
+    error?: string;
+  }> = [];
+
+  for (const [index, row] of rows.entries()) {
+    const firstName = row.firstName?.trim();
+    const phone = row.phone?.trim();
+    const name = `${firstName || ""} ${row.lastName || ""}`.trim();
+    if (!firstName || !phone) {
+      results.push({
+        index,
+        name,
+        phone: phone || "",
+        success: false,
+        error: "Skipped: first name and phone are required.",
+      });
+      continue;
+    }
+
+    const result = await createMember({
+      ...row,
+      firstName,
+      phone,
+      email: row.email?.trim() || "",
+      lastName: row.lastName?.trim() || "",
+    });
+    results.push({
+      index,
+      name,
+      phone,
+      success: result.success,
+      memberId: result.memberId,
+      pendingApproval: result.pendingApproval,
+      error: result.error,
+    });
+  }
+
+  const created = results.filter((result) => result.success).length;
+  const skipped = results.filter((result) => !result.success && result.error?.toLowerCase().includes("already exists")).length;
+  const failed = results.length - created - skipped;
+
+  revalidatePath("/members");
+  revalidatePath("/dashboard");
+  revalidatePath("/workspace");
+  revalidatePath("/approvals");
+
+  return {
+    success: true,
+    created,
+    skipped,
+    failed,
+    results,
+  };
 }
 
 export async function updateMember(
