@@ -8,7 +8,7 @@ import MemberApprovalQueue from "@/components/workspace/MemberApprovalQueue";
 export default async function ApprovalsPage() {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role?.trim().toLowerCase();
-  if (role !== "admin" && role !== "superadmin") redirect("/workspace");
+  if (role !== "owner" && role !== "admin" && role !== "superadmin") redirect("/workspace");
 
   const [{ programs }, pendingMembers] = await Promise.all([
     getAllPrograms(),

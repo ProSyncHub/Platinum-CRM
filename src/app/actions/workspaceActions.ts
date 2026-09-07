@@ -17,7 +17,7 @@ import {
   saveFollowUpAssignment,
 } from "@/lib/followUpTasks.server";
 
-const ADMIN_ROLES = new Set(["admin", "superadmin"]);
+const ADMIN_ROLES = new Set(["owner", "admin", "superadmin"]);
 const VALID_MEDIA = new Set<MediumId>([
   "phone",
   "whatsapp",
