@@ -13,7 +13,10 @@ export async function hasUserCapability(
   const record = await prisma.user.findUnique({
     where: { id: user.id },
     select: {
+      id: true,
       role: true,
+      permissionRoleId: true,
+      permissionRoleIds: true,
       permissionOverrides: true,
       permissionRole: { select: { permissionsJson: true } },
     },
@@ -21,15 +24,20 @@ export async function hasUserCapability(
   if (!record) return false;
   const normalizedRole = record.role?.trim().toLowerCase() || sessionRole || "employee";
   if (normalizedRole === "owner") return true;
-  const template = record.permissionRole
-    ? null
-    : await prisma.permissionRole.findUnique({
-        where: { key: normalizedRole },
-        select: { permissionsJson: true },
-      });
+  const roleIds = Array.from(new Set([...(record.permissionRoleIds || []), record.permissionRoleId].filter(Boolean))) as string[];
+  const templates = await prisma.permissionRole.findMany({
+    where: {
+      OR: [
+        ...(roleIds.length ? [{ id: { in: roleIds } }] : []),
+        { key: normalizedRole },
+      ],
+    },
+    select: { key: true, permissionsJson: true },
+  });
+  if (templates.some((template) => template.key === "owner")) return true;
   return resolvePermissions(
     normalizedRole,
-    record.permissionRole?.permissionsJson || template?.permissionsJson,
+    templates.map((template) => template.permissionsJson),
     record.permissionOverrides,
   )[capability] === true;
 }

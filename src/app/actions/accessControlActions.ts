@@ -15,6 +15,7 @@ import {
 import { hasUserCapability } from "@/lib/accessControl.server";
 
 const ROLES: AccessRole[] = ["owner", "admin", "manager", "employee"];
+const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 
 const ROLE_DETAILS: Record<AccessRole, { name: string; description: string; scope: string }> = {
   owner: { name: "Owner", description: "Full organization control. This role cannot be limited.", scope: "organization" },
@@ -82,6 +83,7 @@ export async function getAccessControlSettings() {
         department: true,
         active: true,
         permissionRoleId: true,
+        permissionRoleIds: true,
         permissionOverrides: true,
       },
       orderBy: [{ role: "asc" }, { name: "asc" }],
@@ -99,7 +101,7 @@ export async function claimInitialOwner() {
   if (owner) return { success: false, error: "An Owner account already exists." };
   await ensureRoleTemplates();
   const ownerRole = await prisma.permissionRole.findUniqueOrThrow({ where: { key: "owner" }, select: { id: true } });
-  await prisma.user.update({ where: { id: current.id }, data: { role: "owner", permissionRoleId: ownerRole.id, permissionOverrides: null } });
+  await prisma.user.update({ where: { id: current.id }, data: { role: "owner", permissionRoleId: ownerRole.id, permissionRoleIds: [ownerRole.id], permissionOverrides: null } });
   refreshAccessViews();
   return { success: true };
 }
@@ -127,19 +129,38 @@ export async function saveRoleTemplate(
   return { success: true };
 }
 
-export async function assignRoleToUser(userId: string, roleId: string) {
+export async function assignRolesToUser(userId: string, roleIds: string[]) {
   const current = await viewer();
   if (!isOwner(current)) return { success: false, error: "Only the Owner can assign CRM roles." };
-  const role = await prisma.permissionRole.findUnique({ where: { id: roleId }, select: { id: true, key: true, name: true } });
-  if (!role || !ROLES.includes(role.key as AccessRole)) return { success: false, error: "Choose a valid role." };
-  if (role.key === "owner") return { success: false, error: "Owner can only be set through first-time Owner setup." };
-  if (userId === current.id && role.key !== "owner") return { success: false, error: "The active Owner cannot remove their own Owner role." };
+  const cleanRoleIds = Array.from(new Set(roleIds.filter((id) => OBJECT_ID_PATTERN.test(id))));
+  if (!cleanRoleIds.length) return { success: false, error: "Choose at least one role." };
+  const roles = await prisma.permissionRole.findMany({
+    where: { id: { in: cleanRoleIds } },
+    select: { id: true, key: true, name: true },
+  });
+  if (roles.length !== cleanRoleIds.length || roles.some((role) => !ROLES.includes(role.key as AccessRole))) {
+    return { success: false, error: "Choose valid CRM roles." };
+  }
+  if (roles.some((role) => role.key === "owner")) {
+    return { success: false, error: "Owner can only be set through first-time Owner setup." };
+  }
+  if (userId === current.id) return { success: false, error: "The active Owner cannot edit their own Owner access." };
+  const primaryRole = roles.find((role) => role.key === "admin") || roles.find((role) => role.key === "manager") || roles[0];
   await prisma.user.update({
     where: { id: userId },
-    data: { role: role.key, permissionRoleId: role.id, permissionOverrides: null },
+    data: {
+      role: primaryRole.key,
+      permissionRoleId: primaryRole.id,
+      permissionRoleIds: roles.map((role) => role.id),
+      permissionOverrides: null,
+    },
   });
   refreshAccessViews();
-  return { success: true, message: `Role assigned: ${role.name}` };
+  return { success: true, message: `Roles assigned: ${roles.map((role) => role.name).join(", ")}` };
+}
+
+export async function assignRoleToUser(userId: string, roleId: string) {
+  return assignRolesToUser(userId, [roleId]);
 }
 
 export async function saveIndividualPermissionOverrides(userId: string, overrides: PermissionMap) {
@@ -150,18 +171,24 @@ export async function saveIndividualPermissionOverrides(userId: string, override
     select: {
       id: true,
       role: true,
+      permissionRoleId: true,
+      permissionRoleIds: true,
       permissionRole: { select: { permissionsJson: true } },
     },
   });
   if (!target) return { success: false, error: "Staff member not found." };
   if (target.role === "owner") return { success: false, error: "Owner access is always unrestricted." };
-  const fallbackRole = target.permissionRole
-    ? null
-    : await prisma.permissionRole.findUnique({
-        where: { key: target.role.trim().toLowerCase() },
-        select: { permissionsJson: true },
-      });
-  const inherited = resolvePermissions(target.role, target.permissionRole?.permissionsJson || fallbackRole?.permissionsJson);
+  const roleIds = Array.from(new Set([...(target.permissionRoleIds || []), target.permissionRoleId].filter(Boolean))) as string[];
+  const inheritedRoles = await prisma.permissionRole.findMany({
+    where: {
+      OR: [
+        ...(roleIds.length ? [{ id: { in: roleIds } }] : []),
+        { key: target.role.trim().toLowerCase() },
+      ],
+    },
+    select: { permissionsJson: true },
+  });
+  const inherited = resolvePermissions(target.role, inheritedRoles.map((role) => role.permissionsJson));
   const exceptionOnly = Object.fromEntries(
     CAPABILITIES.flatMap(([key]) => {
       const value = overrides[key];

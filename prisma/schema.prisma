@@ -16,6 +16,7 @@ model User {
   role                String // owner, admin, manager, employee
   permissionRoleId    String?         @db.ObjectId
   permissionRole      PermissionRole? @relation(fields: [permissionRoleId], references: [id], onDelete: SetNull)
+  permissionRoleIds   String[]        @default([]) @db.ObjectId
   permissionOverrides String? // JSON map of individual capability grants/denials
   active              Boolean         @default(true)
   createdAt           DateTime        @default(now())
@@ -227,10 +228,13 @@ model Lead {
   priority     String  @default("medium") // low, medium, high, urgent
   notes        String?
 
-  assignedToUser       String? @db.ObjectId
+  assignedToUser       String?   @db.ObjectId
   assignedToName       String?
   assignedToEmail      String?
   assignedToDepartment String?
+  assignedAt           DateTime?
+  assignedByUser       String?   @db.ObjectId
+  assignedByName       String?
 
   rawPayloadJson String?
   receivedAt     DateTime @default(now())
@@ -244,6 +248,8 @@ model Lead {
   @@index([email])
   @@index([memberId])
   @@index([dedupeKey])
+  @@index([assignedToUser, status, receivedAt])
+  @@index([assignedToDepartment, status, receivedAt])
 }
 
 model MemberAiAnalysis {

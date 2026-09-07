@@ -10,7 +10,7 @@ import {
   type PermissionMap,
 } from "@/lib/accessControl";
 import {
-  assignRoleToUser,
+  assignRolesToUser,
   claimInitialOwner,
   saveIndividualPermissionOverrides,
   saveRoleTemplate,
@@ -33,6 +33,7 @@ type User = {
   department: string;
   active: boolean;
   permissionRoleId?: string | null;
+  permissionRoleIds?: string[];
   permissionOverrides?: string | null;
 };
 
@@ -68,15 +69,25 @@ export default function AccessControlPanel({
   const [roleName, setRoleName] = useState(selectedRole?.name || "");
   const [roleDescription, setRoleDescription] = useState(selectedRole?.description || "");
   const [rolePermissions, setRolePermissions] = useState<PermissionMap>(parsePermissionOverrides(selectedRole?.permissionsJson));
-  const [assignmentRoleId, setAssignmentRoleId] = useState(selectedUser?.permissionRoleId || selectedRole?.id || "");
+  const [assignmentRoleIds, setAssignmentRoleIds] = useState<string[]>(() => selectedUser ? roleIdsForUser(selectedUser, roles) : []);
   const [overrides, setOverrides] = useState<PermissionMap>(parsePermissionOverrides(selectedUser?.permissionOverrides));
 
   const inheritedPermissions = useMemo(() => {
-    const role = roles.find((item) => item.id === assignmentRoleId);
-    return resolvePermissions(role?.key || selectedUser?.role, role?.permissionsJson);
-  }, [assignmentRoleId, roles, selectedUser?.role]);
+    const selectedRoles = roles.filter((item) => assignmentRoleIds.includes(item.id));
+    return resolvePermissions(
+      selectedRoles[0]?.key || selectedUser?.role,
+      selectedRoles.map((role) => role.permissionsJson),
+    );
+  }, [assignmentRoleIds, roles, selectedUser?.role]);
 
   if (!selectedRole || !selectedUser) return null;
+
+  function roleIdsForUser(user: User, roleTemplates: RoleTemplate[]) {
+    const ids = user.permissionRoleIds?.length
+      ? user.permissionRoleIds
+      : [user.permissionRoleId || roleTemplates.find((role) => role.key === user.role)?.id || ""];
+    return ids.filter(Boolean);
+  }
 
   function chooseRole(id: string) {
     const role = roles.find((item) => item.id === id)!;
@@ -89,7 +100,7 @@ export default function AccessControlPanel({
   function chooseUser(id: string) {
     const user = users.find((item) => item.id === id)!;
     setUserId(id);
-    setAssignmentRoleId(user.permissionRoleId || roles.find((role) => role.key === user.role)?.id || roles[0]?.id || "");
+    setAssignmentRoleIds(roleIdsForUser(user, roles));
     setOverrides(parsePermissionOverrides(user.permissionOverrides));
   }
 
@@ -113,15 +124,23 @@ export default function AccessControlPanel({
     });
   }
 
-  async function assignRole() {
+  function toggleAssignmentRole(id: string, checked: boolean) {
+    setAssignmentRoleIds((current) => {
+      const next = checked ? Array.from(new Set([...current, id])) : current.filter((roleId) => roleId !== id);
+      return next.length ? next : current;
+    });
+  }
+
+  async function assignRoles() {
     const activeUser = users.find((user) => user.id === userId);
     if (!activeUser) return;
     setSavingAssignment(true);
-    const result = await assignRoleToUser(activeUser.id, assignmentRoleId);
+    const result = await assignRolesToUser(activeUser.id, assignmentRoleIds);
     setSavingAssignment(false);
     if (!result.success) return toast.error(result.error || "Could not assign role.");
-    const role = roles.find((item) => item.id === assignmentRoleId)!;
-    setUsers((items) => items.map((user) => user.id === activeUser.id ? { ...user, role: role.key, permissionRoleId: role.id, permissionOverrides: null } : user));
+    const selectedRoles = roles.filter((role) => assignmentRoleIds.includes(role.id));
+    const primaryRole = selectedRoles.find((role) => role.key === "admin") || selectedRoles.find((role) => role.key === "manager") || selectedRoles[0];
+    setUsers((items) => items.map((user) => user.id === activeUser.id ? { ...user, role: primaryRole?.key || user.role, permissionRoleId: primaryRole?.id || user.permissionRoleId, permissionRoleIds: selectedRoles.map((role) => role.id), permissionOverrides: null } : user));
     setOverrides({});
     toast.success(result.message || "Role assigned.");
   }
@@ -168,7 +187,7 @@ export default function AccessControlPanel({
             <div className="rounded-2xl bg-white p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div><h3 className="font-bold text-slate-950">Edit {selectedRole.name} role</h3><p className="mt-1 text-sm text-slate-500">Changes apply automatically to every staff member assigned to this role.</p></div>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{users.filter((user) => user.permissionRoleId === selectedRole.id || (!user.permissionRoleId && user.role === selectedRole.key)).length} assigned</span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{users.filter((user) => roleIdsForUser(user, roles).includes(selectedRole.id) || (!roleIdsForUser(user, roles).length && user.role === selectedRole.key)).length} assigned</span>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-slate-700">Role name<input disabled={!canConfigure || selectedRole.key === "owner"} value={roleName} onChange={(event) => setRoleName(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 disabled:bg-slate-100" /></label>
@@ -182,12 +201,28 @@ export default function AccessControlPanel({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2 text-blue-700"><UsersRound className="h-5 w-5" /></div><div><h3 className="font-bold text-slate-950">Assign a role to a person</h3><p className="mt-1 text-sm text-slate-500">The person inherits every permission from their selected role immediately.</p></div></div>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2 text-blue-700"><UsersRound className="h-5 w-5" /></div><div><h3 className="font-bold text-slate-950">Assign roles to a person</h3><p className="mt-1 text-sm text-slate-500">One person can hold multiple CRM roles. Permissions are combined automatically, like Discord roles.</p></div></div>
+              <div className="mt-5 grid gap-4">
                 <label className="text-sm font-semibold text-slate-700">Team member<select disabled={!canConfigure} value={selectedUser.id} onChange={(event) => chooseUser(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3">{users.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.department}</option>)}</select></label>
-                <label className="text-sm font-semibold text-slate-700">CRM role<select disabled={!canConfigure || selectedUser.id === currentUserId || selectedUser.role === "owner"} value={assignmentRoleId} onChange={(event) => setAssignmentRoleId(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3">{visibleAssignmentRoles.map((role) => <option key={role.id} value={role.id} disabled={role.key === "owner"}>{role.name}</option>)}</select></label>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">CRM roles</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {visibleAssignmentRoles.map((role) => (
+                      <label key={role.id} className={`flex items-center gap-2 rounded-lg border p-3 text-sm font-semibold ${assignmentRoleIds.includes(role.id) ? "border-violet-300 bg-violet-50 text-violet-900" : "border-slate-200 bg-white text-slate-700"}`}>
+                        <input
+                          disabled={!canConfigure || selectedUser.id === currentUserId || selectedUser.role === "owner" || role.key === "owner"}
+                          type="checkbox"
+                          checked={assignmentRoleIds.includes(role.id)}
+                          onChange={(event) => toggleAssignmentRole(role.id, event.target.checked)}
+                        />
+                        {role.name}
+                        <span className="ml-auto text-[10px] uppercase text-slate-400">{titleCase(role.scope)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
-              {canConfigure && selectedUser.id !== currentUserId && selectedUser.role !== "owner" && <button disabled={savingAssignment} onClick={assignRole} className="mt-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-800 disabled:opacity-50">{savingAssignment ? "Assigning..." : "Assign role"}</button>}
+              {canConfigure && selectedUser.id !== currentUserId && selectedUser.role !== "owner" && <button disabled={savingAssignment} onClick={assignRoles} className="mt-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-800 disabled:opacity-50">{savingAssignment ? "Assigning..." : "Save roles"}</button>}
             </div>
 
             <details className="rounded-2xl border border-slate-200 bg-white p-5">

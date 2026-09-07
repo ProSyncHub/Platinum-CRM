@@ -21,6 +21,7 @@ import {
   Flame,
   CheckCircle2,
   Inbox,
+  MessageCircle,
 } from "lucide-react";
 
 interface EmployeeDashboardProps {
@@ -60,7 +61,7 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
     orderBy: { updatedAt: "desc" },
   });
 
-  const [callsToday, logsToday] = await Promise.all([
+  const [callsToday, logsToday, assignedWatiLeads] = await Promise.all([
     prisma.callLog.count({
       where: {
         date: { gte: todayStart, lt: tomorrowStart },
@@ -87,6 +88,29 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
       },
       orderBy: { date: "desc" },
       take: 5,
+    }),
+    prisma.lead.findMany({
+      where: {
+        source: { slug: "wati" },
+        status: { not: "closed" },
+        OR: [
+          ...(userId ? [{ assignedToUser: userId }] : []),
+          ...(userEmail ? [{ assignedToEmail: { equals: userEmail, mode: "insensitive" as const } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        responseCode: true,
+        responseText: true,
+        campaign: true,
+        receivedAt: true,
+        assignedAt: true,
+      },
+      orderBy: [{ assignedAt: "desc" }, { receivedAt: "desc" }],
+      take: 6,
     }),
   ]);
 
@@ -163,7 +187,47 @@ export default async function EmployeeDashboard({ department }: EmployeeDashboar
           value={callsToday}
           icon={Flame}
         />
+        <KpiCard
+          title="Assigned WATI Leads"
+          value={assignedWatiLeads.length}
+          icon={MessageCircle}
+        />
       </div>
+
+      {assignedWatiLeads.length > 0 && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-xs">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-black text-emerald-950">
+                <MessageCircle className="h-4 w-4" />
+                Your assigned WATI leads
+              </h3>
+              <p className="mt-1 text-xs text-emerald-800">
+                Leads assigned from the WATI reply queue. Open Leads to call, update status, or reassign if permitted.
+              </p>
+            </div>
+            <Link href="/leads?source=wati" className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800">
+              Open WATI leads
+            </Link>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {assignedWatiLeads.map((lead) => (
+              <Link key={lead.id} href={`/leads?source=wati&q=${encodeURIComponent(lead.phone || lead.email || lead.fullName)}`} className="rounded-xl border border-emerald-200 bg-white p-4 hover:border-emerald-400">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-950">{lead.fullName}</p>
+                    <p className="mt-1 text-xs text-slate-500">{lead.phone || lead.email || "No contact detail"}</p>
+                  </div>
+                  <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
+                    {lead.responseCode === "has_question" ? "Question" : lead.responseCode === "will_pay_shortly" ? "Will pay" : lead.responseCode === "already_paid" ? "Paid" : "Other"}
+                  </span>
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs text-slate-600">{lead.responseText || lead.campaign || "WATI lead assigned for follow-up."}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {logsToday.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">

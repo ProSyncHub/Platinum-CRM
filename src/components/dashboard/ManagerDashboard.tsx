@@ -23,6 +23,7 @@ import {
   Video,
   Mail,
   Flame,
+  MessageCircle,
 } from "lucide-react";
 
 interface ManagerDashboardProps {
@@ -31,7 +32,7 @@ interface ManagerDashboardProps {
 
 export default async function ManagerDashboard({ department }: ManagerDashboardProps) {
   const managerDepartment = normalizeDepartment(department);
-  const [members, pendingQueryCount, activeServiceCount, recentServiceReferrals] = await Promise.all([
+  const [members, pendingQueryCount, activeServiceCount, recentServiceReferrals, teamWatiLeads] = await Promise.all([
     prisma.member.findMany({
       where: {
         OR: [
@@ -63,6 +64,26 @@ export default async function ManagerDashboard({ department }: ManagerDashboardP
       },
       orderBy: { updatedAt: "desc" },
       take: 4,
+    }),
+    prisma.lead.findMany({
+      where: {
+        source: { slug: "wati" },
+        status: { not: "closed" },
+        assignedToDepartment: { equals: managerDepartment, mode: "insensitive" },
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        responseCode: true,
+        responseText: true,
+        assignedToName: true,
+        assignedAt: true,
+        receivedAt: true,
+      },
+      orderBy: [{ assignedAt: "desc" }, { receivedAt: "desc" }],
+      take: 6,
     }),
   ]);
 
@@ -201,6 +222,41 @@ export default async function ManagerDashboard({ department }: ManagerDashboardP
           icon={AlertTriangle}
         />
       </div>
+
+      {teamWatiLeads.length > 0 && (
+        <div className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-xs">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-emerald-950">
+                <MessageCircle className="h-4 w-4" />
+                Team WATI lead assignments
+              </h3>
+              <p className="mt-1 text-xs text-emerald-800">
+                Open WATI replies assigned to {managerDepartment}. Managers can review ownership from the Leads queue.
+              </p>
+            </div>
+            <Link href="/leads?source=wati" className="rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800">
+              Open WATI queue
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {teamWatiLeads.map((lead) => (
+              <Link key={lead.id} href={`/leads?source=wati&q=${encodeURIComponent(lead.phone || lead.email || lead.fullName)}`} className="rounded-2xl border border-emerald-200 bg-white p-4 hover:border-emerald-400">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-950">{lead.fullName}</p>
+                    <p className="mt-1 text-xs text-slate-500">{lead.phone || lead.email || "No contact detail"}</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-800">
+                    {lead.assignedToName || "Team"}
+                  </span>
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs text-slate-600">{lead.responseText || "WATI lead assigned for follow-up."}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <FollowUpOverviewPanel />
 

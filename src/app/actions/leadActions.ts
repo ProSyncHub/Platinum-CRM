@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/db";
 import { isElevatedViewer } from "@/lib/authorization";
+import { hasUserCapability } from "@/lib/accessControl.server";
 import {
   createLeadRecord,
   generateLeadWebhookSecret,
@@ -43,6 +44,22 @@ function refreshLeadViews() {
   revalidatePath("/dashboard");
 }
 
+async function canManageLeads(user: { id?: string; role?: string | null }) {
+  return hasUserCapability(user, "leads.manage");
+}
+
+async function canAccessWatiLeads(user: { id?: string; role?: string | null }) {
+  return (
+    (await hasUserCapability(user, "leads.manage")) ||
+    (await hasUserCapability(user, "leads.wati")) ||
+    (await hasUserCapability(user, "leads.assign"))
+  );
+}
+
+async function canAssignWatiLeads(user: { id?: string; role?: string | null }) {
+  return (await hasUserCapability(user, "leads.manage")) || (await hasUserCapability(user, "leads.assign"));
+}
+
 export async function createLeadSource(input: {
   name: string;
   slug?: string;
@@ -52,7 +69,7 @@ export async function createLeadSource(input: {
   defaultDepartment?: string;
 }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !isAdmin(session.user.role)) {
+  if (!session?.user || !(await canManageLeads(session.user))) {
     return { success: false as const, error: "Only administrators can configure lead sources." };
   }
 
@@ -91,7 +108,7 @@ export async function createLeadSource(input: {
 
 export async function regenerateLeadSourceSecret(sourceId: string) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !isAdmin(session.user.role)) {
+  if (!session?.user || !(await canManageLeads(session.user))) {
     return { success: false as const, error: "Only administrators can rotate webhook secrets." };
   }
   if (!OBJECT_ID_PATTERN.test(sourceId)) {
@@ -114,7 +131,7 @@ export async function regenerateLeadSourceSecret(sourceId: string) {
 
 export async function setLeadSourceActive(sourceId: string, active: boolean) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !isAdmin(session.user.role)) {
+  if (!session?.user || !(await canManageLeads(session.user))) {
     return { success: false as const, error: "Only administrators can change lead sources." };
   }
   if (!OBJECT_ID_PATTERN.test(sourceId)) {
@@ -132,6 +149,9 @@ export async function createLeadImportBatch(input: {
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return { success: false as const, error: "Unauthorized" };
+  if (!(await canManageLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to import leads." };
+  }
   if (!OBJECT_ID_PATTERN.test(input.sourceId)) {
     return { success: false as const, error: "Choose a valid lead source." };
   }
@@ -161,6 +181,9 @@ export async function importLeadRows(input: {
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return { success: false as const, error: "Unauthorized" };
+  if (!(await canManageLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to import leads." };
+  }
   if (!OBJECT_ID_PATTERN.test(input.batchId) || input.rows.length > 200) {
     return { success: false as const, error: "Invalid import batch or chunk size." };
   }
@@ -227,6 +250,9 @@ export async function importLeadRows(input: {
 export async function completeLeadImport(batchId: string, totalRows: number) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return { success: false as const, error: "Unauthorized" };
+  if (!(await canManageLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to import leads." };
+  }
   if (!OBJECT_ID_PATTERN.test(batchId)) {
     return { success: false as const, error: "Invalid import batch." };
   }
@@ -263,7 +289,60 @@ export async function updateLeadStatus(leadId: string, status: string) {
   if (!OBJECT_ID_PATTERN.test(leadId) || !LEAD_STATUSES.has(status)) {
     return { success: false as const, error: "Invalid lead status." };
   }
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { source: { select: { slug: true } } },
+  });
+  if (!lead) return { success: false as const, error: "Lead not found." };
+  if (lead.source.slug === "wati") {
+    if (!(await canAccessWatiLeads(session.user))) return { success: false as const, error: "You do not have access to WATI leads." };
+  } else if (!(await canManageLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to this lead source." };
+  }
   await prisma.lead.update({ where: { id: leadId }, data: { status } });
   refreshLeadViews();
   return { success: true as const };
+}
+
+export async function assignLeadToUser(leadId: string, userId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false as const, error: "Unauthorized" };
+  if (!OBJECT_ID_PATTERN.test(leadId) || !OBJECT_ID_PATTERN.test(userId)) {
+    return { success: false as const, error: "Choose a valid lead and staff member." };
+  }
+  if (!(await canAssignWatiLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to assign WATI leads." };
+  }
+
+  const [lead, assignee] = await Promise.all([
+    prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, source: { select: { slug: true } } },
+    }),
+    prisma.user.findFirst({
+      where: { id: userId, active: true },
+      select: { id: true, name: true, email: true, department: true },
+    }),
+  ]);
+  if (!lead) return { success: false as const, error: "Lead not found." };
+  if (lead.source.slug !== "wati" && !(await canManageLeads(session.user))) {
+    return { success: false as const, error: "Only WATI leads can be assigned from this queue." };
+  }
+  if (!assignee) return { success: false as const, error: "Active staff member not found." };
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      assignedToUser: assignee.id,
+      assignedToName: assignee.name,
+      assignedToEmail: assignee.email,
+      assignedToDepartment: assignee.department,
+      assignedAt: new Date(),
+      assignedByUser: session.user.id || null,
+      assignedByName: session.user.name || "Staff Member",
+      status: "contacted",
+    },
+  });
+  refreshLeadViews();
+  return { success: true as const, message: `Assigned to ${assignee.name}.` };
 }

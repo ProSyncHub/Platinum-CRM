@@ -2,6 +2,14 @@ import { readFile } from "node:fs/promises";
 import { prisma } from "../src/lib/db";
 import { generateMemberCode } from "../src/lib/membershipUtils";
 
+type ScriptMember = {
+  id: string;
+  memberCode: string;
+  fullName: string;
+  email: string;
+  phone: string;
+};
+
 const sourcePath = process.argv[2];
 if (!sourcePath) throw new Error("Pass the pasted-text file path as the first argument.");
 
@@ -79,13 +87,13 @@ async function importUpdates() {
     const date = parseUpdateDate(dateValue);
     const outcome = isPaymentVijay ? "Payment Follow-up" : outcomeFrom(notes);
 
-    let member = members.find((candidate) =>
+    let member = members.find((candidate: ScriptMember) =>
       (email && normalize(candidate.email) === normalize(email)) ||
       (phone && normalizePhone(candidate.phone) === normalizePhone(phone))
     );
 
     if (!member && !isPaymentVijay) {
-      member = members.find((candidate) => normalize(candidate.fullName) === normalize(fullName));
+      member = members.find((candidate: ScriptMember) => normalize(candidate.fullName) === normalize(fullName));
     }
 
     if (!member && isPaymentVijay) {
@@ -164,4 +172,3 @@ importUpdates()
     process.exitCode = 1;
   })
   .finally(() => prisma.$disconnect());
-

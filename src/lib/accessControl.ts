@@ -8,6 +8,8 @@ export const CAPABILITIES = [
   ["calls.view_department", "View department call activity"],
   ["reports.view", "View reports"],
   ["leads.manage", "Manage leads"],
+  ["leads.wati", "Access WATI leads"],
+  ["leads.assign", "Assign WATI leads"],
   ["programs.manage", "Manage programs and partner services"],
   ["team.manage", "Manage team members"],
   ["sessions.manage", "Schedule and manage 1-on-1 sessions"],
@@ -59,13 +61,14 @@ export function effectivePermissions(role: string | null | undefined, overrides?
 
 export function resolvePermissions(
   role: string | null | undefined,
-  rolePermissions?: string | null,
+  rolePermissions?: string | string[] | null,
   individualOverrides?: string | null,
 ): PermissionMap {
   const normalized = (role || "employee").toLowerCase() as AccessRole;
+  const rolePermissionList = Array.isArray(rolePermissions) ? rolePermissions : rolePermissions ? [rolePermissions] : [];
   return {
     ...(ROLE_DEFAULTS[normalized] || ROLE_DEFAULTS.employee),
-    ...parsePermissionOverrides(rolePermissions),
+    ...Object.assign({}, ...rolePermissionList.map((permissions) => parsePermissionOverrides(permissions))),
     ...parsePermissionOverrides(individualOverrides),
   };
 }

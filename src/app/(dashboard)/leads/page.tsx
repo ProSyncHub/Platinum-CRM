@@ -4,6 +4,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import LeadsWorkspace from "@/components/leads/LeadsWorkspace";
 import { prisma } from "@/lib/db";
 import { ensureDefaultLeadSources } from "@/lib/leads";
+import { hasUserCapability } from "@/lib/accessControl.server";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,23 @@ export default async function LeadsPage({
 }) {
   const session = await getServerSession(authOptions);
   await ensureDefaultLeadSources();
+  if (!session?.user) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-700">Please sign in to open leads.</div>;
+  }
+  const [canManageLeads, canAccessWatiLeads, canAssignLeads] = await Promise.all([
+    hasUserCapability(session.user, "leads.manage"),
+    hasUserCapability(session.user, "leads.wati"),
+    hasUserCapability(session.user, "leads.assign"),
+  ]);
+  const canOpenWatiQueue = canAccessWatiLeads || canAssignLeads;
+  if (!canManageLeads && !canOpenWatiQueue) {
+    return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-950">You do not have access to leads. Ask the Owner to enable “Access WATI leads” for your role.</div>;
+  }
 
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
-  const sourceSlug = typeof params.source === "string" ? params.source : "";
+  const requestedSourceSlug = typeof params.source === "string" ? params.source : "";
+  const sourceSlug = canManageLeads ? requestedSourceSlug : "wati";
   const status =
     typeof params.status === "string" && VALID_STATUSES.has(params.status) ? params.status : "";
   const requestedPage = typeof params.page === "string" ? Number(params.page) : 1;
@@ -41,7 +55,7 @@ export default async function LeadsPage({
       : {}),
   };
 
-  const [sources, totalFiltered, leads, totalLeads, newLeads, questionLeads, watiLeads, imports] =
+  const [sources, totalFiltered, leads, totalLeads, newLeads, questionLeads, watiLeads, imports, staff] =
     await Promise.all([
       prisma.leadSource.findMany({
         select: {
@@ -80,10 +94,15 @@ export default async function LeadsPage({
         orderBy: { createdAt: "desc" },
         take: 5,
       }),
+      prisma.user.findMany({
+        where: { active: true },
+        select: { id: true, name: true, email: true, department: true },
+        orderBy: [{ department: "asc" }, { name: "asc" }],
+      }),
     ]);
 
   const role = session?.user?.role?.toLowerCase() || "employee";
-  const isAdmin = role === "admin" || role === "superadmin";
+  const isAdmin = canManageLeads || role === "admin" || role === "superadmin";
 
   return (
     <LeadsWorkspace
@@ -93,7 +112,7 @@ export default async function LeadsPage({
         createdAt: lead.createdAt.toISOString(),
         updatedAt: lead.updatedAt.toISOString(),
       }))}
-      sources={sources.map((source) => ({
+      sources={(canManageLeads ? sources : sources.filter((source) => source.slug === "wati")).map((source) => ({
         ...source,
         createdAt: source.createdAt.toISOString(),
         updatedAt: source.updatedAt.toISOString(),
@@ -113,6 +132,8 @@ export default async function LeadsPage({
       filters={{ query, source: sourceSlug, status }}
       pagination={{ page, pageSize: PAGE_SIZE, total: totalFiltered }}
       isAdmin={isAdmin}
+      canAssignLeads={canManageLeads || canAssignLeads}
+      staff={staff}
     />
   );
 }
