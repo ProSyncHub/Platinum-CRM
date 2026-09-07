@@ -1,4 +1,4 @@
-export type Role = "superadmin" | "admin" | "manager" | "employee";
+export type Role = "owner" | "superadmin" | "admin" | "manager" | "employee";
 
 export type Department = string;
 

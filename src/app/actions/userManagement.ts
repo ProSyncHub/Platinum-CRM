@@ -50,7 +50,7 @@ export async function getAllTeamMembers() {
   });
 
   const totalStaff = users.length;
-  const totalAdmins = users.filter((u) => ["admin", "superadmin"].includes(u.role)).length;
+  const totalAdmins = users.filter((u) => ["owner", "admin", "superadmin"].includes(u.role)).length;
   const totalManagers = users.filter((u) => u.role === "manager").length;
   const totalEmployees = users.filter((u) => u.role === "employee").length;
   const activeCount = users.filter((u) => u.active).length;
@@ -160,9 +160,10 @@ export async function updateTeamMember(
     return { success: false, error: "Another user already uses this email address." };
   }
 
-  // Prevent admin from removing their own admin role or deactivating themselves
+  // Prevent the signed-in elevated user from removing their own elevated access or deactivating themselves.
   if (admin.id === id) {
-    if (role !== "admin") {
+    const currentRole = admin.role?.trim().toLowerCase();
+    if (currentRole === "owner" || role !== currentRole) {
       return { success: false, error: "You cannot remove your own admin privileges." };
     }
     if (!active) {
@@ -258,7 +259,7 @@ export async function toggleManagerRole(id: string) {
     return { success: false, error: "Staff member not found." };
   }
 
-  if (target.role === "admin") {
+  if (["owner", "admin", "superadmin"].includes(target.role?.trim().toLowerCase() || "")) {
     return { success: false, error: "Cannot toggle role for administrator account." };
   }
 

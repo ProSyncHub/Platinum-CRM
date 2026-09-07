@@ -45,6 +45,10 @@ const DEFAULT_PROGRAMS = [
   },
 ];
 
+function isAdminViewer(user?: { role?: string | null }) {
+  return ["owner", "admin", "superadmin"].includes(user?.role?.trim().toLowerCase() || "");
+}
+
 /**
  * Fetch all programs, auto-seeding default initial programs if database is empty
  */
@@ -80,7 +84,7 @@ export async function getAllPrograms() {
  */
 export async function createProgram(input: ProgramInput) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !["admin", "superadmin"].includes(session.user.role?.trim().toLowerCase() || "")) {
+  if (!session?.user || !isAdminViewer(session.user)) {
     return { success: false, error: "Only Administrators can create new programs." };
   }
 
@@ -145,7 +149,7 @@ export async function updateProgram(
   input: Partial<ProgramInput> & { active?: boolean }
 ) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !["admin", "superadmin"].includes(session.user.role?.trim().toLowerCase() || "")) {
+  if (!session?.user || !isAdminViewer(session.user)) {
     return { success: false, error: "Only Administrators can update programs." };
   }
 
@@ -182,7 +186,7 @@ export async function updateProgram(
  */
 export async function deleteProgram(id: string) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !["admin", "superadmin"].includes(session.user.role?.trim().toLowerCase() || "")) {
+  if (!session?.user || !isAdminViewer(session.user)) {
     return { success: false, error: "Only Administrators can delete programs." };
   }
 

@@ -127,8 +127,8 @@ export function QuickCommunicationModal({
   const [transferPriority, setTransferPriority] = useState<Priority>("medium");
 
   const normalizedRole = user.role.trim().toLowerCase();
-  const canAttribute = ["admin", "superadmin"].includes(normalizedRole);
-  const elevated = ["admin", "superadmin", "manager"].includes(normalizedRole);
+  const canAttribute = ["owner", "admin", "superadmin"].includes(normalizedRole);
+  const elevated = ["owner", "admin", "superadmin", "manager"].includes(normalizedRole);
   const requiresFollowUp =
     outcome === "Follow-up required" || outcome === "Callback requested";
   const assignableStaff = elevated
@@ -642,7 +642,7 @@ export function DepartmentUpdateModal({
 }) {
   const [loading, setLoading] = useState(false);
   const [department, setDepartment] = useState(user.department.toLowerCase());
-  const isAdmin = ["admin", "superadmin"].includes(
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
     user.role.trim().toLowerCase(),
   );
 

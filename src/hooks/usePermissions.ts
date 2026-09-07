@@ -6,7 +6,7 @@ export function usePermissions() {
   const role = session?.user?.role?.trim().toLowerCase();
   const department = session?.user?.department?.trim().toLowerCase();
 
-  const isAdmin = role === "admin" || role === "superadmin";
+  const isAdmin = role === "owner" || role === "admin" || role === "superadmin";
   const isManager = role === "manager" || isAdmin;
 
   const canEditDepartment = (targetDepartment: string) => {

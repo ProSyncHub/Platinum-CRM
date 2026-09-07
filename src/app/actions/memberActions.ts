@@ -415,9 +415,7 @@ export async function createMember(data: {
       };
     }
 
-    const administrator = ["admin", "superadmin"].includes(
-      session.user.role?.trim().toLowerCase() || "",
-    );
+    const administrator = isAdminViewer(session.user);
     const year = new Date().getFullYear();
     const programType = data.programType || "Platinum";
     const count = await prisma.member.count({
@@ -730,7 +728,7 @@ export async function deleteOrArchiveMember(
     };
   }
 
-  if (!["admin", "superadmin"].includes(session.user.role) && action === "delete") {
+  if (!isAdminViewer(session.user) && action === "delete") {
     return { success: false, error: "Only administrators can delete members permanently." };
   }
 
@@ -844,11 +842,7 @@ export async function logCallForMember(
     let interactionDate = new Date();
 
     if (contactedByUserId || contactedAt) {
-      if (
-        !["admin", "superadmin"].includes(
-          session.user.role?.trim().toLowerCase() || "",
-        )
-      ) {
+      if (!isAdminViewer(session.user)) {
         return {
           success: false,
           error: "Only administrators can override contact attribution or time.",

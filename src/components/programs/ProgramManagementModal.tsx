@@ -69,7 +69,9 @@ export default function ProgramManagementModal({
 
   if (!isOpen) return null;
 
-  const isAdmin = currentUserRole?.trim().toLowerCase() === "admin";
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
+    currentUserRole?.trim().toLowerCase() || "",
+  );
 
   const resetForm = () => {
     setFormData({

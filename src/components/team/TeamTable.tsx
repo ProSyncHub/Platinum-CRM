@@ -65,7 +65,7 @@ export default function TeamTable({
   const [isSyncing, setIsSyncing] = useState(false);
   const [togglingRoleId, setTogglingRoleId] = useState<string | null>(null);
 
-  const isAdmin = ["admin", "superadmin"].includes(
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
     currentUserRole?.trim().toLowerCase() || "",
   );
 
@@ -104,7 +104,7 @@ export default function TeamTable({
       toast.error("Only administrators can assign or remove managers.");
       return;
     }
-    if (user.role === "admin") {
+    if (["owner", "admin", "superadmin"].includes(user.role?.trim().toLowerCase() || "")) {
       toast.error("Cannot alter administrator role.");
       return;
     }
@@ -214,7 +214,15 @@ export default function TeamTable({
 
   const getRoleBadge = (user: any) => {
     switch (user.role?.toLowerCase()) {
+      case "owner":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800">
+            <Shield size={12} className="text-amber-600" />
+            Owner
+          </span>
+        );
       case "admin":
+      case "superadmin":
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-bold text-purple-800">
             <Shield size={12} className="text-purple-600" />
@@ -472,7 +480,9 @@ export default function TeamTable({
               ) : (
                 filteredUsers.map((user) => {
                   const isSelf = user.id === currentUserId;
-                  const isUserAdmin = user.role === "admin";
+                  const isUserAdmin = ["owner", "admin", "superadmin"].includes(
+                    user.role?.trim().toLowerCase() || "",
+                  );
                   const isUserManager = user.role === "manager";
                   const initials = user.name
                     ? user.name

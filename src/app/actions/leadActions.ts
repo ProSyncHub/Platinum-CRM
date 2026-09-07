@@ -15,7 +15,7 @@ import {
 } from "@/lib/leads";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
-const ADMIN_ROLES = new Set(["admin", "superadmin"]);
+const ADMIN_ROLES = new Set(["owner", "admin", "superadmin"]);
 const LEAD_STATUSES = new Set(["new", "contacted", "qualified", "converted", "closed"]);
 
 const importRowSchema = z.object({

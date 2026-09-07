@@ -68,7 +68,7 @@ export default function CallsExplorerClient({
   const [selectedStaff, setSelectedStaff] = useState("all");
   const [editingLog, setEditingLog] = useState<CallsExplorerLog | null>(null);
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
-  const isSuperAdmin = ["admin", "superadmin"].includes(
+  const isSuperAdmin = ["owner", "admin", "superadmin"].includes(
     currentUserRole?.trim().toLowerCase() || "",
   );
   const isManager = currentUserRole?.trim().toLowerCase() === "manager";

@@ -43,7 +43,7 @@ const VALID_PREFERENCES = new Set<FollowUpPreference>([
 
 function isSuperAdmin(user: { role?: string | null }) {
   const role = user.role?.trim().toLowerCase();
-  return role === "admin" || role === "superadmin";
+  return role === "owner" || role === "admin" || role === "superadmin";
 }
 
 function revalidateFollowUpViews(memberId?: string) {

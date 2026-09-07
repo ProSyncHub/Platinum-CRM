@@ -12,7 +12,7 @@ export default async function CallsPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
 
-  const isSuperAdmin = ["admin", "superadmin"].includes(
+  const isSuperAdmin = ["owner", "admin", "superadmin"].includes(
     session.user.role?.trim().toLowerCase() || "",
   );
   const isManager = session.user.role?.trim().toLowerCase() === "manager";

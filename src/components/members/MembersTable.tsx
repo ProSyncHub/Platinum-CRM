@@ -83,8 +83,10 @@ export default function MembersTable({
   const [callLoggingMember, setCallLoggingMember] = useState<any | null>(null);
   const [transferringMember, setTransferringMember] = useState<any | null>(null);
   const [stageAdvancingMember, setStageAdvancingMember] = useState<any | null>(null);
-  const isAdmin = userRole?.trim().toLowerCase() === "admin";
-  const canManagePayments = ["admin", "manager"].includes(
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
+    userRole?.trim().toLowerCase() || "",
+  );
+  const canManagePayments = ["owner", "admin", "superadmin", "manager"].includes(
     userRole?.trim().toLowerCase() || ""
   );
 

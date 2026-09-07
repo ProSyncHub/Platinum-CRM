@@ -124,9 +124,9 @@ export default function LogCallModal({
   }, [isOpen]);
 
   const normalizedRole = viewer.role.trim().toLowerCase();
-  const canOverrideAttribution = ["admin", "superadmin"].includes(normalizedRole);
+  const canOverrideAttribution = ["owner", "admin", "superadmin"].includes(normalizedRole);
   const availableFollowUpOwners = useMemo(() => {
-    if (["admin", "superadmin", "manager"].includes(normalizedRole)) {
+    if (["owner", "admin", "superadmin", "manager"].includes(normalizedRole)) {
       return staffOptions;
     }
     return staffOptions.filter(

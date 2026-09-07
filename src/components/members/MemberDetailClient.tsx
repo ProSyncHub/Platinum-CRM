@@ -105,7 +105,7 @@ export default function MemberDetailClient({
 }: MemberDetailClientProps) {
   const [member, setMember] = useState(initialMember);
   const normalizedRole = userRole.trim().toLowerCase();
-  const isSuperAdmin = normalizedRole === "admin" || normalizedRole === "superadmin";
+  const isSuperAdmin = ["owner", "admin", "superadmin"].includes(normalizedRole);
   const isElevatedUser = isSuperAdmin || normalizedRole === "manager";
 
   // Modals state

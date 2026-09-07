@@ -94,7 +94,7 @@ export async function getAccessControlSettings() {
 
 export async function claimInitialOwner() {
   const current = await viewer();
-  if (!["admin", "superadmin"].includes(current.role?.toLowerCase() || "")) {
+  if (!["owner", "admin", "superadmin"].includes(current.role?.toLowerCase() || "")) {
     return { success: false, error: "Only an existing administrator can complete first-time Owner setup." };
   }
   const owner = await prisma.user.findFirst({ where: { role: "owner" }, select: { id: true } });

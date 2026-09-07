@@ -59,7 +59,9 @@ export default function ReportsOverviewClient({
   const [selectedProgram, setSelectedProgram] = useState("all");
   const [programsList, setProgramsList] = useState(availablePrograms);
   const [isProgramModalOpen, setIsProgramModalOpen] = useState(false);
-  const isAdmin = currentUserRole?.trim().toLowerCase() === "admin";
+  const isAdmin = ["owner", "admin", "superadmin"].includes(
+    currentUserRole?.trim().toLowerCase() || "",
+  );
 
   const programOptions = useMemo(() => {
     const byKey = new Map<string, any>();

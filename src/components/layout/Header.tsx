@@ -22,6 +22,13 @@ export default function Header() {
 
   const getRoleBadge = (role?: string) => {
     switch (role?.toLowerCase()) {
+      case "owner":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+            <Shield size={10} className="text-amber-600" />
+            Owner
+          </span>
+        );
       case "admin":
       case "superadmin":
         return (
