@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -91,6 +91,15 @@ function formatCrmDateTime(value: string | number | Date) {
   }).format(date);
 }
 
+function oneOnOneTimelineTitle(session: OneOnOneSessionView) {
+  if (session.status === "completed") return `Attended 1-on-1 session ${session.sessionNumber}`;
+  if (session.status === "scheduled") return `Scheduled 1-on-1 session ${session.sessionNumber}`;
+  if (session.status === "processing") return `1-on-1 session ${session.sessionNumber} is processing`;
+  if (session.status === "review_required") return `1-on-1 session ${session.sessionNumber} needs review`;
+  if (session.status === "cancelled") return `Cancelled 1-on-1 session ${session.sessionNumber}`;
+  return `1-on-1 session ${session.sessionNumber}`;
+}
+
 export default function MemberDetailClient({
   member: initialMember,
   userRole = "employee",
@@ -107,6 +116,20 @@ export default function MemberDetailClient({
   const normalizedRole = userRole.trim().toLowerCase();
   const isSuperAdmin = ["owner", "admin", "superadmin"].includes(normalizedRole);
   const isElevatedUser = isSuperAdmin || normalizedRole === "manager";
+  const oneOnOneTimeline = useMemo(
+    () =>
+      [...oneOnOneSessions]
+        .sort(
+          (left, right) =>
+            new Date(right.completedAt || right.actualStart || right.scheduledStart).getTime() -
+            new Date(left.completedAt || left.actualStart || left.scheduledStart).getTime(),
+        )
+        .map((session) => ({
+          ...session,
+          timelineAt: session.completedAt || session.actualStart || session.scheduledStart,
+        })),
+    [oneOnOneSessions],
+  );
 
   // Modals state
   const [isCommunicationOpen, setIsCommunicationOpen] = useState(false);
@@ -478,7 +501,7 @@ export default function MemberDetailClient({
               <div>
                 <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <PhoneCall className="w-4 h-4 text-emerald-600" />
-                  Communication & Call Connect Timeline ({member.callLogs?.length || 0})
+                  Communication & Call Connect Timeline ({(member.callLogs?.length || 0) + oneOnOneTimeline.length})
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Recorded outreach via Phone, WhatsApp, Zoom 1:1, Email & SMS
@@ -493,6 +516,45 @@ export default function MemberDetailClient({
             </div>
 
             <div className="space-y-3">
+              {oneOnOneTimeline.map((session) => (
+                <div
+                  key={`one-on-one-${session.id}`}
+                  className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 space-y-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg border border-indigo-200 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase text-indigo-800">
+                        1-on-1
+                      </span>
+                      <span className="font-bold text-slate-900">{oneOnOneTimelineTitle(session)}</span>
+                      {session.verifiedMinutes ? (
+                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                          {session.verifiedMinutes} min verified
+                        </span>
+                      ) : (
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
+                          {session.plannedDuration} min planned
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-500">{formatCrmDateTime(session.timelineAt)}</span>
+                  </div>
+                  <p className="text-xs leading-5 text-slate-700">
+                    Coordinator: <strong>{session.coordinatorName}</strong> · Attendance: <strong>{session.attendanceStatus}</strong> · Transcript: <strong>{session.transcriptStatus}</strong> · AI: <strong>{session.aiStatus}</strong>
+                  </p>
+                  {session.aiSummary && (
+                    <p className="rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-700">{session.aiSummary}</p>
+                  )}
+                  {(session.memberQuestions || session.preparationNotes || session.lastError) && (
+                    <details className="rounded-xl border border-indigo-100 bg-white p-3 text-xs text-slate-700">
+                      <summary className="cursor-pointer font-bold text-indigo-900">View 1-on-1 context</summary>
+                      {session.memberQuestions && <p className="mt-2"><b>Member wanted to discuss:</b> {session.memberQuestions}</p>}
+                      {session.preparationNotes && <p className="mt-2"><b>Prep notes:</b> {session.preparationNotes}</p>}
+                      {session.lastError && <p className="mt-2 text-amber-700"><b>Review/error:</b> {session.lastError}</p>}
+                    </details>
+                  )}
+                </div>
+              ))}
               {member.callLogs && member.callLogs.length > 0 ? (
                 member.callLogs.map((log: any) => {
                   const mediumMeta = getMediumMeta(log.medium);
@@ -585,7 +647,7 @@ export default function MemberDetailClient({
                   );
                 })
               ) : (
-                <div className="py-8 text-center text-slate-500 text-xs">
+                oneOnOneTimeline.length === 0 && <div className="py-8 text-center text-slate-500 text-xs">
                   No communication logs recorded yet. Click "Log Communication" above to record a conversation.
                 </div>
               )}

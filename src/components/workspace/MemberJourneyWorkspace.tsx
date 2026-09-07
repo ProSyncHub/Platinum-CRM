@@ -112,7 +112,7 @@ interface WorkspaceMember {
 
 interface TimelineEntry {
   id: string;
-  type: "communication" | "transfer" | "department";
+  type: "communication" | "transfer" | "department" | "one_on_one";
   at: string;
   title: string;
   body: string;
@@ -140,6 +140,15 @@ function titleCase(value?: string | null) {
   return (value || "Not set")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function oneOnOneTimelineTitle(session: OneOnOneSessionView) {
+  if (session.status === "completed") return `Attended 1-on-1 session ${session.sessionNumber}`;
+  if (session.status === "scheduled") return `Scheduled 1-on-1 session ${session.sessionNumber}`;
+  if (session.status === "processing") return `1-on-1 session ${session.sessionNumber} is processing`;
+  if (session.status === "review_required") return `1-on-1 session ${session.sessionNumber} needs review`;
+  if (session.status === "cancelled") return `Cancelled 1-on-1 session ${session.sessionNumber}`;
+  return `1-on-1 session ${session.sessionNumber}: ${titleCase(session.status)}`;
 }
 
 export default function MemberJourneyWorkspace({
@@ -232,10 +241,35 @@ export default function MemberJourneyWorkspace({
       meta: `${titleCase(item.status)} · ${item.updatedByName}`,
       department: item.department,
     }));
-    return [...calls, ...transfers, ...updates].sort(
+    const sessions: TimelineEntry[] = (oneOnOneSessions || []).map((session) => {
+      const statusMeta = [
+        `Coordinator: ${session.coordinatorName}`,
+        session.verifiedMinutes ? `${session.verifiedMinutes} verified minutes` : `Planned ${session.plannedDuration} minutes`,
+        `Attendance: ${titleCase(session.attendanceStatus)}`,
+        `Transcript: ${titleCase(session.transcriptStatus)}`,
+        `AI: ${titleCase(session.aiStatus)}`,
+      ].join(" · ");
+      const bodyParts = [
+        session.aiSummary,
+        session.memberQuestions ? `Before call: ${session.memberQuestions}` : "",
+        session.preparationNotes ? `Prep notes: ${session.preparationNotes}` : "",
+        session.cancellationReason ? `Cancellation reason: ${session.cancellationReason}` : "",
+        session.lastError ? `Review/error: ${session.lastError}` : "",
+      ].filter(Boolean);
+      return {
+        id: `one-on-one-${session.id}`,
+        type: "one_on_one",
+        at: session.completedAt || session.actualStart || session.scheduledStart,
+        title: oneOnOneTimelineTitle(session),
+        body: bodyParts.join("\n\n"),
+        meta: statusMeta,
+        department: "management",
+      };
+    });
+    return [...calls, ...transfers, ...updates, ...sessions].sort(
       (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
     );
-  }, [member.callLogs, member.departmentUpdates, member.queryTransfers]);
+  }, [member.callLogs, member.departmentUpdates, member.queryTransfers, oneOnOneSessions]);
 
   const approvalStatus = member.approvalStatus || "approved";
   const latestCall = member.callLogs?.[0];
@@ -426,9 +460,11 @@ export default function MemberJourneyWorkspace({
                         ? "bg-emerald-100 text-emerald-800"
                         : item.type === "transfer"
                           ? "bg-violet-100 text-violet-800"
-                          : "bg-blue-100 text-blue-800"
+                          : item.type === "one_on_one"
+                            ? "bg-indigo-100 text-indigo-800"
+                            : "bg-blue-100 text-blue-800"
                     }`}>
-                      {item.type}
+                      {item.type === "one_on_one" ? "1-on-1" : item.type}
                     </span>
                     {item.department && <span className="text-xs font-semibold capitalize text-slate-500">{item.department}</span>}
                   </div>

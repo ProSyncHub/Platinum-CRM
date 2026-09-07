@@ -2,14 +2,18 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
   Clock3,
   Copy,
+  FileText,
+  MessageSquareText,
   RefreshCw,
   RotateCcw,
+  Sparkles,
   Video,
   X,
 } from "lucide-react";
@@ -40,6 +44,7 @@ export interface OneOnOneSessionView {
   attendanceMatchMethod?: string | null;
   memberQuestions?: string | null;
   preparationNotes?: string | null;
+  postMeetingNotes?: string | null;
   coordinatorUserId?: string | null;
   coordinatorName: string;
   coordinatorEmail: string;
@@ -47,8 +52,11 @@ export interface OneOnOneSessionView {
   joinUrl?: string | null;
   meetingSettingsJson?: string | null;
   transcriptStatus: string;
+  transcriptText?: string | null;
+  recordingJson?: string | null;
   aiStatus: string;
   aiSummary?: string | null;
+  aiAnalysisJson?: string | null;
   lastError?: string | null;
   cancellationReason?: string | null;
   completedAt?: string | null;
@@ -117,6 +125,78 @@ function toLocalInput(value?: string | null) {
 function indiaLocalToIso(value: string) {
   if (!value) return "";
   return new Date(`${value}:00+05:30`).toISOString();
+}
+
+function sessionStatusLabel(status: string) {
+  if (status === "completed") return "Attended";
+  if (status === "processing") return "Processing Zoom data";
+  if (status === "review_required") return "Needs review";
+  return titleCase(status);
+}
+
+function sessionStatusHint(session: OneOnOneSessionView) {
+  if (session.status === "scheduled") return "Meeting is booked. After the meeting ends, Zoom attendance and transcript will sync here.";
+  if (session.status === "processing") return "Zoom ended the meeting. CRM is checking attendance, transcript and recording data.";
+  if (session.status === "completed") return "Attendance is verified and this session counts against the member entitlement.";
+  if (session.status === "review_required") return session.lastError || "Zoom data was received, but CRM needs manual review before this counts as verified.";
+  if (session.status === "cancelled") return session.cancellationReason || "This 1-on-1 was cancelled.";
+  if (session.status === "failed") return session.lastError || "CRM could not complete Zoom synchronization.";
+  return "Session is being prepared.";
+}
+
+function parseJsonObject<T>(value?: string | null): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function compactText(value?: string | null, limit = 900) {
+  if (!value?.trim()) return "";
+  const trimmed = value.trim();
+  return trimmed.length > limit ? `${trimmed.slice(0, limit).trim()}…` : trimmed;
+}
+
+function recordingFileCount(recordingJson?: string | null) {
+  const parsed = parseJsonObject<{ recording_files?: unknown[]; recordingFiles?: unknown[] }>(recordingJson);
+  const files = parsed?.recording_files || parsed?.recordingFiles || [];
+  return Array.isArray(files) ? files.length : 0;
+}
+
+function FieldBlock({
+  title,
+  children,
+  tone = "slate",
+}: {
+  title: string;
+  children: ReactNode;
+  tone?: "slate" | "indigo" | "emerald" | "amber" | "violet";
+}) {
+  const styles = {
+    slate: "border-slate-200 bg-slate-50 text-slate-700",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    violet: "border-violet-200 bg-violet-50 text-violet-950",
+  }[tone];
+  return (
+    <div className={`rounded-xl border p-3 text-xs leading-5 ${styles}`}>
+      <p className="mb-1 font-bold uppercase tracking-wide">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function BulletList({ items }: { items?: unknown }) {
+  const list = Array.isArray(items) ? items.filter((item) => typeof item === "string" && item.trim()) as string[] : [];
+  if (list.length === 0) return null;
+  return (
+    <ul className="mt-1 list-disc space-y-1 pl-4">
+      {list.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+    </ul>
+  );
 }
 
 export default function OneOnOneSessionsPanel({
@@ -209,6 +289,20 @@ export default function OneOnOneSessionsPanel({
           const legacyCompleted = !session && sessionNumber <= (member.oneOnOneSessions || 0);
           const status = session?.status || (legacyCompleted ? "completed" : "available");
           const active = legacyCompleted || Boolean(session && !["cancelled", "failed"].includes(session.status));
+          const analysis = parseJsonObject<{
+            topicsDiscussed?: string[];
+            decisionsAndAdvice?: string[];
+            memberCommitments?: string[];
+            prosyncCommitments?: string[];
+            blockersAndRisks?: string[];
+            unresolvedQuestions?: string[];
+            nextSessionFocus?: string[];
+            actionItems?: Array<{ task?: string; ownerName?: string | null; dueDate?: string | null }>;
+            reviewRequired?: boolean;
+            reviewReason?: string | null;
+          }>(session?.aiAnalysisJson);
+          const recordingCount = recordingFileCount(session?.recordingJson);
+          const transcriptPreview = compactText(session?.transcriptText);
           return (
             <article key={sessionNumber} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex items-start justify-between gap-3">
@@ -229,25 +323,123 @@ export default function OneOnOneSessionsPanel({
                     STATUS_STYLES[status] || "border-slate-200 bg-white text-slate-600"
                   }`}
                 >
-                  {titleCase(status)}
+                  {session ? sessionStatusLabel(status) : titleCase(status)}
                 </span>
               </div>
 
               {session && (
-                <div className="mt-3 space-y-1 text-xs text-slate-500">
-                  <p>Coordinator: <strong className="text-slate-700">{session.coordinatorName}</strong></p>
-                  {session.verifiedMinutes ? (
-                    <p className="flex items-center gap-1.5 text-emerald-700">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      <strong>{session.verifiedMinutes} verified overlap minutes</strong>
-                    </p>
-                  ) : (
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-1 text-xs text-slate-500">
+                    <p>Coordinator: <strong className="text-slate-700">{session.coordinatorName}</strong></p>
                     <p className="flex items-center gap-1.5">
                       <Clock3 className="h-3.5 w-3.5" /> Planned for {session.plannedDuration} minutes
                     </p>
+                    {session.actualStart && (
+                      <p>Actual start: <strong className="text-slate-700">{formatDate(session.actualStart)}</strong></p>
+                    )}
+                    {session.actualEnd && (
+                      <p>Actual end: <strong className="text-slate-700">{formatDate(session.actualEnd)}</strong></p>
+                    )}
+                    {session.verifiedMinutes ? (
+                      <p className="flex items-center gap-1.5 text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <strong>{session.verifiedMinutes} verified Amar/member overlap minutes</strong>
+                      </p>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-amber-700">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Attendance not verified yet
+                      </p>
+                    )}
+                  </div>
+
+                  <FieldBlock title="Current automation state" tone={status === "completed" ? "emerald" : status === "scheduled" ? "indigo" : "amber"}>
+                    <p>{sessionStatusHint(session)}</p>
+                    <p className="mt-1">
+                      Attendance: <strong>{titleCase(session.attendanceStatus)}</strong>
+                      {session.attendanceMatchMethod ? ` · Match: ${titleCase(session.attendanceMatchMethod)}` : ""}
+                    </p>
+                    <p>
+                      Transcript: <strong>{titleCase(session.transcriptStatus)}</strong> · AI analysis: <strong>{titleCase(session.aiStatus)}</strong>
+                      {recordingCount > 0 ? ` · ${recordingCount} recording file${recordingCount === 1 ? "" : "s"} captured` : ""}
+                    </p>
+                  </FieldBlock>
+
+                  {(session.memberQuestions || session.preparationNotes) && (
+                    <FieldBlock title="Before the 1-on-1" tone="slate">
+                      {session.memberQuestions && <p><strong>Member wanted to discuss:</strong> {session.memberQuestions}</p>}
+                      {session.preparationNotes && <p className="mt-1"><strong>Internal prep notes:</strong> {session.preparationNotes}</p>}
+                    </FieldBlock>
                   )}
-                  {session.transcriptStatus === "ready" && <p>Transcript captured automatically</p>}
-                  {session.aiStatus === "ready" && <p>Claude notes completed</p>}
+
+                  {(session.aiSummary || session.postMeetingNotes) && (
+                    <FieldBlock title="What happened" tone="violet">
+                      {session.aiSummary && <p>{session.aiSummary}</p>}
+                      {session.postMeetingNotes && <p className="mt-1"><strong>Manual note:</strong> {session.postMeetingNotes}</p>}
+                    </FieldBlock>
+                  )}
+
+                  {analysis && (
+                    <details className="rounded-xl border border-violet-200 bg-white p-3 text-xs text-slate-700">
+                      <summary className="flex cursor-pointer items-center gap-2 font-bold text-violet-900">
+                        <Sparkles className="h-3.5 w-3.5" /> View full AI analysis
+                      </summary>
+                      <div className="mt-3 grid gap-3">
+                        <div>
+                          <p className="font-bold text-slate-900">Topics discussed</p>
+                          <BulletList items={analysis.topicsDiscussed} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">Decisions / advice</p>
+                          <BulletList items={analysis.decisionsAndAdvice} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">Member commitments</p>
+                          <BulletList items={analysis.memberCommitments} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">ProSync commitments</p>
+                          <BulletList items={analysis.prosyncCommitments} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">Blockers / unresolved</p>
+                          <BulletList items={[...(analysis.blockersAndRisks || []), ...(analysis.unresolvedQuestions || [])]} />
+                        </div>
+                        {Array.isArray(analysis.actionItems) && analysis.actionItems.length > 0 && (
+                          <div>
+                            <p className="font-bold text-slate-900">Action items</p>
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {analysis.actionItems.slice(0, 5).map((item, itemIndex) => (
+                                <li key={`${item.task}-${itemIndex}`}>
+                                  {item.task}
+                                  {item.ownerName ? ` · Owner: ${item.ownerName}` : ""}
+                                  {item.dueDate ? ` · Due: ${item.dueDate}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {analysis.reviewRequired && analysis.reviewReason && (
+                          <p className="rounded-lg bg-amber-50 p-2 font-semibold text-amber-800">Review needed: {analysis.reviewReason}</p>
+                        )}
+                      </div>
+                    </details>
+                  )}
+
+                  {transcriptPreview && (
+                    <details className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                      <summary className="flex cursor-pointer items-center gap-2 font-bold text-slate-900">
+                        <FileText className="h-3.5 w-3.5" /> View transcript preview
+                      </summary>
+                      <p className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap leading-5">{transcriptPreview}</p>
+                    </details>
+                  )}
+
+                  {session.status === "scheduled" && (
+                    <FieldBlock title="Next step" tone="indigo">
+                      <p className="flex items-start gap-2"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0" /> After the call finishes, Zoom sends events. CRM verifies attendance, pulls transcript/recording, analyzes discussion, and marks this slot attended.</p>
+                    </FieldBlock>
+                  )}
                 </div>
               )}
               {legacyCompleted && (
