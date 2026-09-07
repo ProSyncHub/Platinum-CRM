@@ -641,6 +641,7 @@ export default function MemberDetailClient({
                       {log.editedAt && (
                         <p className="text-[10px] font-medium text-slate-400">
                           Corrected by {log.editedByName || "Super Admin"} · {formatCrmDateTime(log.editedAt)}
+                          {log.editedReason ? ` · Reason: ${log.editedReason}` : ""}
                         </p>
                       )}
                     </div>

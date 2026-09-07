@@ -498,15 +498,17 @@ export default function CallsExplorerClient({
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              disabled={deletingLogId === log.id}
-                              onClick={() => deleteLog(log)}
-                              className="rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
-                              title="Delete communication"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {isSuperAdmin && (
+                              <button
+                                type="button"
+                                disabled={deletingLogId === log.id}
+                                onClick={() => deleteLog(log)}
+                                className="rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                                title="Delete communication"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </>
                         )}
                       </div>

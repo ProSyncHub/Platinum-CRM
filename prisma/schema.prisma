@@ -324,6 +324,7 @@ model CallLog {
   editedAt      DateTime?
   editedByName  String?
   editedByEmail String?
+  editedReason  String?
 
   // External automation provenance. A Zoom-generated communication remains
   // linked to the verified 1-on-1 session that created it.

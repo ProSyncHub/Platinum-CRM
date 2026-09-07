@@ -86,12 +86,13 @@ export default function EditCallLogModal({
   const [outcome, setOutcome] = useState(log.outcome || "");
   const [duration, setDuration] = useState(log.duration || 0);
   const [notes, setNotes] = useState(log.notes || "");
+  const [editReason, setEditReason] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!staffUserId || !outcome.trim() || !notes.trim()) {
-      toast.error("Contacted by, outcome, and notes are required.");
+    if (!staffUserId || !outcome.trim() || !notes.trim() || !editReason.trim()) {
+      toast.error("Contacted by, outcome, notes, and edit reason are required.");
       return;
     }
 
@@ -106,6 +107,7 @@ export default function EditCallLogModal({
         duration,
         notes,
         staffUserId,
+        editReason,
       });
       if (!result.success) {
         toast.error(result.error || "Unable to update communication");
@@ -184,6 +186,23 @@ export default function EditCallLogModal({
           <div>
             <label htmlFor="edit-communication-notes" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-700">Communication notes</label>
             <textarea id="edit-communication-notes" required rows={5} maxLength={4000} value={notes} onChange={(event) => setNotes(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm leading-6 focus:border-amber-500 focus:bg-white focus:outline-none" />
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <label htmlFor="edit-reason" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-amber-900">Edit reason required</label>
+            <textarea
+              id="edit-reason"
+              required
+              rows={3}
+              maxLength={1000}
+              value={editReason}
+              onChange={(event) => setEditReason(event.target.value)}
+              placeholder="Example: Corrected duration after verifying call recording, fixed typo, or updated wrong contacted-by user."
+              className="w-full rounded-xl border border-amber-200 bg-white px-3.5 py-2.5 text-sm leading-6 focus:border-amber-500 focus:outline-none"
+            />
+            <p className="mt-2 text-xs font-medium text-amber-800">
+              This reason is saved with who edited it and when, so the CRM trail stays auditable.
+            </p>
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">

@@ -212,6 +212,11 @@ export default function OneOnOneSessionsPanel({
     sessionNumber: number;
     session?: OneOnOneSessionView;
   } | null>(null);
+  const [viewingSession, setViewingSession] = useState<{
+    sessionNumber: number;
+    session?: OneOnOneSessionView;
+    legacyCompleted?: boolean;
+  } | null>(null);
 
   const latestBySlot = useMemo(() => {
     const map = new Map<number, OneOnOneSessionView>();
@@ -259,6 +264,11 @@ export default function OneOnOneSessionsPanel({
     );
   }
 
+  function canChangeBooking(session?: OneOnOneSessionView) {
+    if (!session || session.status !== "scheduled") return false;
+    return new Date(session.scheduledStart).getTime() > Date.now();
+  }
+
   if (!eligible) return null;
 
   return (
@@ -304,7 +314,19 @@ export default function OneOnOneSessionsPanel({
           const recordingCount = recordingFileCount(session?.recordingJson);
           const transcriptPreview = compactText(session?.transcriptText);
           return (
-            <article key={sessionNumber} className="rounded-2xl border border-slate-200 p-4">
+            <article
+              key={sessionNumber}
+              role="button"
+              tabIndex={0}
+              onClick={() => setViewingSession({ sessionNumber, session, legacyCompleted })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setViewingSession({ sessionNumber, session, legacyCompleted });
+                }
+              }}
+              className="cursor-pointer rounded-2xl border border-slate-200 p-4 transition hover:border-indigo-300 hover:shadow-sm"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -463,18 +485,24 @@ export default function OneOnOneSessionsPanel({
                 {canManage && !active && (
                   <button
                     type="button"
-                    onClick={() => setEditing({ sessionNumber })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditing({ sessionNumber });
+                    }}
                     disabled={pending}
                     className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
                   >
                     <CalendarClock className="h-3.5 w-3.5" /> Schedule
                   </button>
                 )}
-                {canManage && session?.status === "scheduled" && (
+                {canManage && canChangeBooking(session) && (
                   <>
                     <button
                       type="button"
-                      onClick={() => setEditing({ sessionNumber, session })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditing({ sessionNumber, session });
+                      }}
                       disabled={pending}
                       className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
@@ -482,7 +510,10 @@ export default function OneOnOneSessionsPanel({
                     </button>
                     <button
                       type="button"
-                      onClick={() => cancel(session)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (session) cancel(session);
+                      }}
                       disabled={pending}
                       className="rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
                     >
@@ -493,16 +524,22 @@ export default function OneOnOneSessionsPanel({
                 {session?.joinUrl && session.status === "scheduled" && (
                   <button
                     type="button"
-                    onClick={() => copyJoinLink(session.joinUrl!)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      copyJoinLink(session.joinUrl!);
+                    }}
                     className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
                   >
                     <Copy className="h-3.5 w-3.5" /> Copy member link
                   </button>
                 )}
-                {canManage && session?.zoomMeetingId && !["scheduled", "cancelled", "failed"].includes(session.status) && (
+                {canManage && session?.zoomMeetingId && !["cancelled", "failed", "completed"].includes(session.status) && (
                   <button
                     type="button"
-                    onClick={() => run(() => syncOneOnOneSession(session.id), "Zoom data synchronized.")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      run(() => syncOneOnOneSession(session.id), "Zoom data synchronized.");
+                    }}
                     disabled={pending}
                     className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
@@ -561,7 +598,146 @@ export default function OneOnOneSessionsPanel({
           }}
         />
       )}
+
+      {viewingSession && (
+        <OneOnOneDetailsModal
+          sessionNumber={viewingSession.sessionNumber}
+          allowance={allowance}
+          session={viewingSession.session}
+          legacyCompleted={viewingSession.legacyCompleted}
+          onClose={() => setViewingSession(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function OneOnOneDetailsModal({
+  sessionNumber,
+  allowance,
+  session,
+  legacyCompleted,
+  onClose,
+}: {
+  sessionNumber: number;
+  allowance: number;
+  session?: OneOnOneSessionView;
+  legacyCompleted?: boolean;
+  onClose: () => void;
+}) {
+  const analysis = parseJsonObject<{
+    topicsDiscussed?: string[];
+    decisionsAndAdvice?: string[];
+    memberCommitments?: string[];
+    prosyncCommitments?: string[];
+    blockersAndRisks?: string[];
+    unresolvedQuestions?: string[];
+    nextSessionFocus?: string[];
+    actionItems?: Array<{ task?: string; ownerName?: string | null; dueDate?: string | null }>;
+    reviewRequired?: boolean;
+    reviewReason?: string | null;
+  }>(session?.aiAnalysisJson);
+  const transcriptPreview = compactText(session?.transcriptText, 5000);
+  const recordingCount = recordingFileCount(session?.recordingJson);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-4xl rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 p-5 sm:p-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Session {sessionNumber} of {allowance}</p>
+            <h3 className="mt-1 text-2xl font-black text-slate-950">
+              {session ? sessionStatusLabel(session.status) : legacyCompleted ? "Completed before Zoom automation" : "Available to schedule"}
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {session ? formatDate(session.scheduledStart) : "No Zoom meeting has been created for this slot yet."}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close session details" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[75vh] space-y-4 overflow-y-auto p-5 sm:p-6">
+          {!session && legacyCompleted && (
+            <FieldBlock title="Legacy completion" tone="slate">
+              <p>This entitlement was already counted before Zoom automation was added. New sessions will show attendance, transcript, recording and AI notes here.</p>
+            </FieldBlock>
+          )}
+          {!session && !legacyCompleted && (
+            <FieldBlock title="No meeting yet" tone="indigo">
+              <p>This slot is still available. Schedule it to create a Zoom meeting and start automated tracking.</p>
+            </FieldBlock>
+          )}
+          {session && (
+            <>
+              <div className="grid gap-3 md:grid-cols-3">
+                <FieldBlock title="Meeting" tone="indigo">
+                  <p>Coordinator: <strong>{session.coordinatorName}</strong></p>
+                  <p>Planned: <strong>{session.plannedDuration} minutes</strong></p>
+                  {session.zoomMeetingId && <p>Zoom ID: <strong>{session.zoomMeetingId}</strong></p>}
+                </FieldBlock>
+                <FieldBlock title="Attendance" tone={session.verifiedMinutes ? "emerald" : "amber"}>
+                  <p>Status: <strong>{titleCase(session.attendanceStatus)}</strong></p>
+                  {session.verifiedMinutes ? <p>Verified overlap: <strong>{session.verifiedMinutes} minutes</strong></p> : <p>Not verified yet.</p>}
+                  {session.actualStart && <p>Start: <strong>{formatDate(session.actualStart)}</strong></p>}
+                  {session.actualEnd && <p>End: <strong>{formatDate(session.actualEnd)}</strong></p>}
+                </FieldBlock>
+                <FieldBlock title="Assets" tone="violet">
+                  <p>Transcript: <strong>{titleCase(session.transcriptStatus)}</strong></p>
+                  <p>AI notes: <strong>{titleCase(session.aiStatus)}</strong></p>
+                  <p>Recordings: <strong>{recordingCount}</strong></p>
+                </FieldBlock>
+              </div>
+
+              <FieldBlock title="Automation state" tone={session.status === "completed" ? "emerald" : "indigo"}>
+                <p>{sessionStatusHint(session)}</p>
+              </FieldBlock>
+
+              {(session.memberQuestions || session.preparationNotes) && (
+                <FieldBlock title="Before the 1-on-1" tone="slate">
+                  {session.memberQuestions && <p><strong>Member wanted to discuss:</strong> {session.memberQuestions}</p>}
+                  {session.preparationNotes && <p className="mt-1"><strong>Internal prep notes:</strong> {session.preparationNotes}</p>}
+                </FieldBlock>
+              )}
+
+              {session.aiSummary && (
+                <FieldBlock title="Summary" tone="violet">
+                  <p>{session.aiSummary}</p>
+                </FieldBlock>
+              )}
+
+              {analysis && (
+                <div className="rounded-2xl border border-violet-200 bg-white p-4 text-sm text-slate-700">
+                  <p className="flex items-center gap-2 font-black text-violet-950"><Sparkles className="h-4 w-4" /> Full AI analysis</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div><p className="font-bold text-slate-900">Topics discussed</p><BulletList items={analysis.topicsDiscussed} /></div>
+                    <div><p className="font-bold text-slate-900">Decisions / advice</p><BulletList items={analysis.decisionsAndAdvice} /></div>
+                    <div><p className="font-bold text-slate-900">Member commitments</p><BulletList items={analysis.memberCommitments} /></div>
+                    <div><p className="font-bold text-slate-900">ProSync commitments</p><BulletList items={analysis.prosyncCommitments} /></div>
+                    <div><p className="font-bold text-slate-900">Blockers / risks</p><BulletList items={analysis.blockersAndRisks} /></div>
+                    <div><p className="font-bold text-slate-900">Unresolved questions</p><BulletList items={analysis.unresolvedQuestions} /></div>
+                    <div><p className="font-bold text-slate-900">Next session focus</p><BulletList items={analysis.nextSessionFocus} /></div>
+                  </div>
+                </div>
+              )}
+
+              {transcriptPreview && (
+                <FieldBlock title="Transcript preview" tone="slate">
+                  <p className="max-h-80 overflow-y-auto whitespace-pre-wrap">{transcriptPreview}</p>
+                </FieldBlock>
+              )}
+
+              {session.lastError && (
+                <FieldBlock title="Review/error" tone="amber">
+                  <p>{session.lastError}</p>
+                </FieldBlock>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

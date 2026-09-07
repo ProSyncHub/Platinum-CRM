@@ -85,6 +85,7 @@ export async function updateCommunicationLog(input: {
   duration: number;
   notes: string;
   staffUserId: string;
+  editReason: string;
 }) {
   const editor = await requireStaffUser();
 
@@ -109,9 +110,13 @@ export async function updateCommunicationLog(input: {
 
   const outcome = input.outcome?.trim().slice(0, 200);
   const notes = input.notes?.trim().slice(0, 4000);
+  const editReason = input.editReason?.trim().slice(0, 1000);
   const duration = Math.max(0, Math.min(1440, Math.round(Number(input.duration) || 0)));
   if (!outcome || !notes) {
     return { success: false, error: "Outcome and communication notes are required." };
+  }
+  if (!editReason) {
+    return { success: false, error: "Edit reason is required for audit history." };
   }
 
   const [existingLog, staff] = await Promise.all([
@@ -123,6 +128,7 @@ export async function updateCommunicationLog(input: {
         staffUserId: true,
         staffEmail: true,
         staffDepartment: true,
+        source: true,
       },
     }),
     prisma.user.findFirst({
@@ -134,6 +140,9 @@ export async function updateCommunicationLog(input: {
   if (!staff) return { success: false, error: "Active contacted-by staff member not found." };
   if (!canManageCommunication(editor, existingLog)) {
     return { success: false, error: "You can edit only your own or your department's communication logs." };
+  }
+  if (existingLog.source && existingLog.source !== "manual" && !isAdminViewer(editor)) {
+    return { success: false, error: "Only administrators can edit automated communication records." };
   }
   if (!isAdminViewer(editor) && staff.id !== existingLog.staffUserId && staff.id !== editor.id) {
     return { success: false, error: "Only administrators can change who contacted the member." };
@@ -155,6 +164,7 @@ export async function updateCommunicationLog(input: {
       editedAt: new Date(),
       editedByName: editor.name || "Staff Member",
       editedByEmail: editor.email || "",
+      editedReason: editReason,
     },
   });
 
@@ -192,6 +202,9 @@ export async function updateCommunicationLog(input: {
 
 export async function deleteCommunicationLog(callLogId: string) {
   const editor = await requireStaffUser();
+  if (!isAdminViewer(editor)) {
+    return { success: false, error: "Only administrators can delete communication logs." };
+  }
   if (!OBJECT_ID_PATTERN.test(callLogId)) {
     return { success: false, error: "Invalid communication record." };
   }
@@ -208,13 +221,6 @@ export async function deleteCommunicationLog(callLogId: string) {
     },
   });
   if (!existingLog) return { success: false, error: "Communication record not found." };
-  if (!canManageCommunication(editor, existingLog)) {
-    return { success: false, error: "You can delete only your own or your department's communication logs." };
-  }
-  if (existingLog.source && existingLog.source !== "manual" && !isAdminViewer(editor)) {
-    return { success: false, error: "Only administrators can delete automated communication records." };
-  }
-
   await prisma.callLog.delete({ where: { id: existingLog.id } });
 
   const latestLog = await prisma.callLog.findFirst({
