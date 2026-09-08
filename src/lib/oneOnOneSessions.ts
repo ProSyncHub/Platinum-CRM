@@ -36,6 +36,16 @@ function asString(value: unknown) {
   return "";
 }
 
+function parseStoredJson(value?: string | null): JsonRecord {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return {};
+  }
+}
+
 function normalizeEmail(value?: string | null) {
   return (value || "").trim().toLowerCase();
 }
@@ -634,6 +644,81 @@ async function reconcileTranscript(sessionId: string) {
     },
   });
   await analyzeTranscript(session.id);
+}
+
+export async function manuallyVerifyOneOnOneSession(input: {
+  sessionId: string;
+  verifiedMinutes: number;
+  reason: string;
+  reviewer: {
+    id?: string | null;
+    name?: string | null;
+    email?: string | null;
+  };
+}) {
+  const session = await prisma.oneOnOneSession.findUnique({
+    where: { id: input.sessionId },
+    select: {
+      id: true,
+      memberId: true,
+      status: true,
+      attendanceStatus: true,
+      attendanceJson: true,
+      scheduledStart: true,
+      actualStart: true,
+      actualEnd: true,
+      completedAt: true,
+      transcriptText: true,
+    },
+  });
+  if (!session) throw new Error("1-on-1 session no longer exists.");
+  if (session.status === "completed" && session.attendanceStatus === "verified") {
+    await ensureAutomatedCallLog(session.id);
+    await analyzeTranscript(session.id);
+    return { memberId: session.memberId };
+  }
+  if (!["review_required", "processing", "started"].includes(session.status)) {
+    throw new Error("Only sessions that have received Zoom data and need review can be manually verified.");
+  }
+
+  const minutes = Math.max(1, Math.min(240, Math.round(input.verifiedMinutes)));
+  const cleanedReason = input.reason.trim().slice(0, 1_000);
+  if (!cleanedReason) throw new Error("Record why this session is being manually verified.");
+
+  const actualStart = session.actualStart || session.scheduledStart;
+  const actualEnd = session.actualEnd || new Date(actualStart.getTime() + minutes * 60_000);
+  const previousAttendance = parseStoredJson(session.attendanceJson);
+
+  await prisma.oneOnOneSession.update({
+    where: { id: session.id },
+    data: {
+      status: "completed",
+      attendanceStatus: "verified",
+      attendanceMatchMethod: "manual_review",
+      attendanceJson: JSON.stringify({
+        ...previousAttendance,
+        manualReview: {
+          verifiedAt: new Date().toISOString(),
+          verifiedByUserId: input.reviewer.id || null,
+          verifiedByName: input.reviewer.name || null,
+          verifiedByEmail: input.reviewer.email || null,
+          verifiedMinutes: minutes,
+          reason: cleanedReason,
+          previousStatus: session.status,
+          previousAttendanceStatus: session.attendanceStatus,
+        },
+      }),
+      actualStart,
+      actualEnd,
+      verifiedMinutes: minutes,
+      completedAt: session.completedAt || new Date(),
+      lastError: null,
+    },
+  });
+
+  await ensureAutomatedCallLog(session.id);
+  await analyzeTranscript(session.id);
+  return { memberId: session.memberId };
 }
 
 export async function reconcileOneOnOneSession(

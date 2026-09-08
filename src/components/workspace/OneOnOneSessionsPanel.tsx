@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
-  FileText,
   MessageSquareText,
   RefreshCw,
   RotateCcw,
@@ -20,6 +19,7 @@ import {
 import { toast } from "sonner";
 import {
   cancelOneOnOneSession,
+  manuallyVerifyOneOnOneAttendance,
   rescheduleOneOnOneSession,
   scheduleOneOnOneSession,
   syncOneOnOneSession,
@@ -217,6 +217,7 @@ export default function OneOnOneSessionsPanel({
     session?: OneOnOneSessionView;
     legacyCompleted?: boolean;
   } | null>(null);
+  const [renderedAt] = useState(() => Date.now());
 
   const latestBySlot = useMemo(() => {
     const map = new Map<number, OneOnOneSessionView>();
@@ -266,7 +267,20 @@ export default function OneOnOneSessionsPanel({
 
   function canChangeBooking(session?: OneOnOneSessionView) {
     if (!session || session.status !== "scheduled") return false;
-    return new Date(session.scheduledStart).getTime() > Date.now();
+    return new Date(session.scheduledStart).getTime() > renderedAt;
+  }
+
+  function verifyManually(session: OneOnOneSessionView, verifiedMinutes: number, reason: string) {
+    run(
+      () =>
+        manuallyVerifyOneOnOneAttendance({
+          sessionId: session.id,
+          verifiedMinutes,
+          reason,
+        }),
+      `Session ${session.sessionNumber} verified and logged.`,
+    );
+    setViewingSession(null);
   }
 
   if (!eligible) return null;
@@ -299,20 +313,7 @@ export default function OneOnOneSessionsPanel({
           const legacyCompleted = !session && sessionNumber <= (member.oneOnOneSessions || 0);
           const status = session?.status || (legacyCompleted ? "completed" : "available");
           const active = legacyCompleted || Boolean(session && !["cancelled", "failed"].includes(session.status));
-          const analysis = parseJsonObject<{
-            topicsDiscussed?: string[];
-            decisionsAndAdvice?: string[];
-            memberCommitments?: string[];
-            prosyncCommitments?: string[];
-            blockersAndRisks?: string[];
-            unresolvedQuestions?: string[];
-            nextSessionFocus?: string[];
-            actionItems?: Array<{ task?: string; ownerName?: string | null; dueDate?: string | null }>;
-            reviewRequired?: boolean;
-            reviewReason?: string | null;
-          }>(session?.aiAnalysisJson);
           const recordingCount = recordingFileCount(session?.recordingJson);
-          const transcriptPreview = compactText(session?.transcriptText);
           return (
             <article
               key={sessionNumber}
@@ -351,6 +352,55 @@ export default function OneOnOneSessionsPanel({
 
               {session && (
                 <div className="mt-3 space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <p>
+                        Zoom ID:{" "}
+                        <strong className="text-slate-800">
+                          {session.zoomMeetingId || "Not created yet"}
+                        </strong>
+                      </p>
+                      <p>
+                        Member link:{" "}
+                        {session.joinUrl ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              copyJoinLink(session.joinUrl!);
+                            }}
+                            className="font-bold text-blue-700 underline-offset-2 hover:underline"
+                          >
+                            Copy sharing link
+                          </button>
+                        ) : (
+                          <strong className="text-slate-800">Not available</strong>
+                        )}
+                      </p>
+                      <p>
+                        Attendance:{" "}
+                        <strong className={session.verifiedMinutes ? "text-emerald-700" : "text-amber-700"}>
+                          {session.verifiedMinutes ? `${session.verifiedMinutes} minutes verified` : titleCase(session.attendanceStatus)}
+                        </strong>
+                      </p>
+                      <p>
+                        Transcript / AI:{" "}
+                        <strong className="text-slate-800">
+                          {titleCase(session.transcriptStatus)} / {titleCase(session.aiStatus)}
+                        </strong>
+                      </p>
+                    </div>
+                    {session.aiSummary ? (
+                      <p className="mt-2 line-clamp-2 rounded-xl bg-white p-2 leading-5 text-slate-700">
+                        {session.aiSummary}
+                      </p>
+                    ) : (
+                      <p className="mt-2 rounded-xl bg-white p-2 leading-5 text-slate-500">
+                        {sessionStatusHint(session)}
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-1 text-xs text-slate-500">
                     <p>Coordinator: <strong className="text-slate-700">{session.coordinatorName}</strong></p>
                     <p className="flex items-center gap-1.5">
@@ -399,62 +449,6 @@ export default function OneOnOneSessionsPanel({
                       {session.aiSummary && <p>{session.aiSummary}</p>}
                       {session.postMeetingNotes && <p className="mt-1"><strong>Manual note:</strong> {session.postMeetingNotes}</p>}
                     </FieldBlock>
-                  )}
-
-                  {analysis && (
-                    <details className="rounded-xl border border-violet-200 bg-white p-3 text-xs text-slate-700">
-                      <summary className="flex cursor-pointer items-center gap-2 font-bold text-violet-900">
-                        <Sparkles className="h-3.5 w-3.5" /> View full AI analysis
-                      </summary>
-                      <div className="mt-3 grid gap-3">
-                        <div>
-                          <p className="font-bold text-slate-900">Topics discussed</p>
-                          <BulletList items={analysis.topicsDiscussed} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">Decisions / advice</p>
-                          <BulletList items={analysis.decisionsAndAdvice} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">Member commitments</p>
-                          <BulletList items={analysis.memberCommitments} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">ProSync commitments</p>
-                          <BulletList items={analysis.prosyncCommitments} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">Blockers / unresolved</p>
-                          <BulletList items={[...(analysis.blockersAndRisks || []), ...(analysis.unresolvedQuestions || [])]} />
-                        </div>
-                        {Array.isArray(analysis.actionItems) && analysis.actionItems.length > 0 && (
-                          <div>
-                            <p className="font-bold text-slate-900">Action items</p>
-                            <ul className="mt-1 list-disc space-y-1 pl-4">
-                              {analysis.actionItems.slice(0, 5).map((item, itemIndex) => (
-                                <li key={`${item.task}-${itemIndex}`}>
-                                  {item.task}
-                                  {item.ownerName ? ` · Owner: ${item.ownerName}` : ""}
-                                  {item.dueDate ? ` · Due: ${item.dueDate}` : ""}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {analysis.reviewRequired && analysis.reviewReason && (
-                          <p className="rounded-lg bg-amber-50 p-2 font-semibold text-amber-800">Review needed: {analysis.reviewReason}</p>
-                        )}
-                      </div>
-                    </details>
-                  )}
-
-                  {transcriptPreview && (
-                    <details className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
-                      <summary className="flex cursor-pointer items-center gap-2 font-bold text-slate-900">
-                        <FileText className="h-3.5 w-3.5" /> View transcript preview
-                      </summary>
-                      <p className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap leading-5">{transcriptPreview}</p>
-                    </details>
                   )}
 
                   {session.status === "scheduled" && (
@@ -605,6 +599,9 @@ export default function OneOnOneSessionsPanel({
           allowance={allowance}
           session={viewingSession.session}
           legacyCompleted={viewingSession.legacyCompleted}
+          canManage={canManage}
+          pending={pending}
+          onManualVerify={verifyManually}
           onClose={() => setViewingSession(null)}
         />
       )}
@@ -617,14 +614,22 @@ function OneOnOneDetailsModal({
   allowance,
   session,
   legacyCompleted,
+  canManage,
+  pending,
+  onManualVerify,
   onClose,
 }: {
   sessionNumber: number;
   allowance: number;
   session?: OneOnOneSessionView;
   legacyCompleted?: boolean;
+  canManage: boolean;
+  pending: boolean;
+  onManualVerify: (session: OneOnOneSessionView, verifiedMinutes: number, reason: string) => void;
   onClose: () => void;
 }) {
+  const [manualMinutes, setManualMinutes] = useState(session?.verifiedMinutes || session?.plannedDuration || 5);
+  const [manualReason, setManualReason] = useState("");
   const analysis = parseJsonObject<{
     topicsDiscussed?: string[];
     decisionsAndAdvice?: string[];
@@ -639,6 +644,12 @@ function OneOnOneDetailsModal({
   }>(session?.aiAnalysisJson);
   const transcriptPreview = compactText(session?.transcriptText, 5000);
   const recordingCount = recordingFileCount(session?.recordingJson);
+  const canManualVerify = Boolean(
+    session &&
+      canManage &&
+      ["review_required", "processing", "started"].includes(session.status) &&
+      session.attendanceStatus !== "verified",
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
@@ -693,6 +704,53 @@ function OneOnOneDetailsModal({
               <FieldBlock title="Automation state" tone={session.status === "completed" ? "emerald" : "indigo"}>
                 <p>{sessionStatusHint(session)}</p>
               </FieldBlock>
+
+              {canManualVerify && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                  <p className="font-black">Manual attendance review</p>
+                  <p className="mt-1 leading-6">
+                    Use this after checking the transcript/Zoom record yourself. CRM will count this session as attended,
+                    create/update the Zoom call log, and keep this reason in the audit trail.
+                  </p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr]">
+                    <label className="block text-xs font-bold uppercase tracking-wide text-amber-900">
+                      Verified minutes
+                      <input
+                        type="number"
+                        min={1}
+                        max={240}
+                        value={manualMinutes}
+                        onChange={(event) => setManualMinutes(Number(event.target.value))}
+                        className="mt-1 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950 outline-none focus:border-amber-500"
+                      />
+                    </label>
+                    <label className="block text-xs font-bold uppercase tracking-wide text-amber-900">
+                      Review reason
+                      <textarea
+                        value={manualReason}
+                        onChange={(event) => setManualReason(event.target.value)}
+                        rows={3}
+                        placeholder="Example: Transcript confirms Amar Sir and the member discussed the planned agenda for 5 minutes."
+                        className="mt-1 w-full resize-y rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none focus:border-amber-500"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      disabled={pending || manualMinutes < 1 || manualReason.trim().length < 5}
+                      onClick={() => {
+                        if (!session) return;
+                        onManualVerify(session, manualMinutes, manualReason);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {pending && <RefreshCw className="h-4 w-4 animate-spin" />}
+                      Verify attended
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {(session.memberQuestions || session.preparationNotes) && (
                 <FieldBlock title="Before the 1-on-1" tone="slate">

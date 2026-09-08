@@ -47,12 +47,14 @@ const OUTCOMES = [
   "Callback requested",
   "Issue discussed",
   "Information shared",
+  "Did not connect / not picked up",
   "No answer",
   "Resolved",
   "Weekly mentorship check-in completed",
 ];
 
 const DEPARTMENTS = [
+  { id: "software development", label: "Software Development" },
   { id: "ecom", label: "E-Commerce" },
   { id: "sourcing", label: "Sourcing & Brands" },
   { id: "research", label: "Product Research" },
@@ -183,9 +185,13 @@ export default function LogCallModal({
         return toast.error(result.error || "Could not save communication.");
       }
       toast.success(
-        scheduleFollowUp
-          ? "Communication saved and next follow-up assigned."
-          : "Communication saved.",
+        result.autoResolvedTransfer
+          ? "Communication saved and the transferred query was marked resolved."
+          : result.autoTransfer
+          ? `Communication saved and auto-transferred to ${result.autoTransfer.assigneeName || result.autoTransfer.department}.`
+          : scheduleFollowUp
+            ? "Communication saved and next follow-up assigned."
+            : "Communication saved.",
       );
       onSuccess();
       onClose();
@@ -294,9 +300,13 @@ export default function LogCallModal({
                     setOutcome(value);
                     if (
                       value === "Follow-up required" ||
-                      value === "Callback requested"
+                      value === "Callback requested" ||
+                      value === "Did not connect / not picked up"
                     ) {
                       setScheduleFollowUp(true);
+                    }
+                    if (value === "Did not connect / not picked up") {
+                      setDuration(0);
                     }
                   }}
                   className={inputClass}

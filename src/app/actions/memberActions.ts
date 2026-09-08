@@ -382,8 +382,11 @@ export async function createMember(data: {
   programType?: string;
   state?: string;
   enrollingDate?: string;
+  endDate?: string;
   plan?: string;
+  activeStatus?: "Active" | "Not Active" | "On Hold";
   allotedTo?: string;
+  oneOnOneSessionAllowance?: number;
   businessType?: string;
   brandCollaborations?: string;
   plBrand?: string;
@@ -433,13 +436,23 @@ export async function createMember(data: {
     const enrolling = data.enrollingDate ? new Date(data.enrollingDate) : new Date();
     const plan = data.plan || "6 Months";
 
-    // Auto-calculate End Date based on Plan
+    // Auto-calculate End Date based on Plan unless import/manual entry supplied one.
     const endDate = new Date(enrolling);
     if (plan === "Yearly") {
       endDate.setFullYear(endDate.getFullYear() + 1);
     } else {
       endDate.setMonth(endDate.getMonth() + 6);
     }
+    const suppliedEndDate = data.endDate ? new Date(data.endDate) : null;
+    const finalEndDate =
+      suppliedEndDate && !Number.isNaN(suppliedEndDate.getTime())
+        ? suppliedEndDate
+        : endDate;
+    const allowedStatuses = new Set(["Active", "Not Active", "On Hold"]);
+    const requestedActiveStatus = allowedStatuses.has(data.activeStatus || "")
+      ? data.activeStatus
+      : undefined;
+    const sessionAllowance = Number(data.oneOnOneSessionAllowance ?? 6);
 
     const fullName = `${data.firstName} ${data.lastName || ""}`.trim();
     const stage = data.currentStage || "onboarding";
@@ -459,9 +472,9 @@ export async function createMember(data: {
         phone: data.phone,
         state: data.state,
         enrollingDate: enrolling,
-        endDate: endDate,
+        endDate: finalEndDate,
         plan,
-        activeStatus: administrator ? "Active" : "Pending Approval",
+        activeStatus: administrator ? requestedActiveStatus || "Active" : "Pending Approval",
         approvalStatus: administrator ? "approved" : "pending",
         requestedProgram: programType,
         submittedByUser: session.user.id || null,
@@ -470,6 +483,10 @@ export async function createMember(data: {
         submittedByDepartment: normalizeDepartment(session.user.department),
         submittedAt: new Date(),
         allotedTo: data.allotedTo || session.user.name || null,
+        oneOnOneSessionAllowance:
+          Number.isInteger(sessionAllowance) && sessionAllowance >= 0 && sessionAllowance <= 50
+            ? sessionAllowance
+            : 6,
         businessType: data.businessType || "Reseller",
         brandCollaborations: data.brandCollaborations,
         plBrand: data.plBrand,
@@ -833,6 +850,153 @@ export async function deleteOrArchiveMember(
   }
 }
 
+const AUTO_TRANSFER_DEPARTMENTS = [
+  {
+    department: "software development",
+    keywords: ["dev", "developer", "development", "software", "tech", "technical", "website", "app", "crm"],
+  },
+  {
+    department: "support",
+    keywords: ["support", "helpdesk", "customer support"],
+  },
+  {
+    department: "sourcing",
+    keywords: ["sourcing", "supplier", "vendor", "brand connect", "brand team"],
+  },
+  {
+    department: "sales",
+    keywords: ["sales", "payment", "accounts", "invoice", "billing"],
+  },
+  {
+    department: "management",
+    keywords: ["amar sir", "management", "manager", "escalate"],
+  },
+];
+
+function detectAutoTransfer(notes: string) {
+  const normalized = notes.toLowerCase();
+  if (!/\b(connect|contact|call|speak|talk|transfer|assign|handoff|reach)\b/.test(normalized)) {
+    return null;
+  }
+  return (
+    AUTO_TRANSFER_DEPARTMENTS.find((rule) =>
+      rule.keywords.some((keyword) => new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(normalized)),
+    ) || null
+  );
+}
+
+function parseAutoTransferDueAt(notes: string) {
+  const now = new Date();
+  const normalized = notes.toLowerCase();
+  const date = new Date(now);
+  if (normalized.includes("day after tomorrow")) date.setDate(date.getDate() + 2);
+  else if (normalized.includes("tomorrow")) date.setDate(date.getDate() + 1);
+  else {
+    const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const wantedDay = days.findIndex((day) => normalized.includes(day));
+    if (wantedDay >= 0) {
+      const diff = (wantedDay - date.getDay() + 7) % 7 || 7;
+      date.setDate(date.getDate() + diff);
+    } else {
+      date.setDate(date.getDate() + 1);
+    }
+  }
+
+  const timeMatch = normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (timeMatch) {
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2] || "0");
+    const meridiem = timeMatch[3];
+    if (meridiem === "pm" && hours < 12) hours += 12;
+    if (meridiem === "am" && hours === 12) hours = 0;
+    date.setHours(hours, minutes, 0, 0);
+  } else {
+    date.setHours(10, 0, 0, 0);
+  }
+
+  if (date.getTime() < now.getTime() + 5 * 60_000) {
+    date.setDate(now.getDate() + 1);
+    date.setHours(10, 0, 0, 0);
+  }
+  return date;
+}
+
+async function createAutoTransferFromNotes(input: {
+  memberId: string;
+  notes: string;
+  callLogId: string;
+  staffUserId: string | null;
+  staffName: string;
+  staffEmail: string;
+  staffDepartment: string;
+}) {
+  const detected = detectAutoTransfer(input.notes);
+  if (!detected) return null;
+
+  const users = await prisma.user.findMany({
+    where: {
+      active: true,
+      department: { equals: detected.department, mode: "insensitive" },
+    },
+    select: { id: true, name: true, email: true, department: true, role: true },
+    orderBy: [{ role: "asc" }, { name: "asc" }],
+  });
+  const normalizedNotes = input.notes.toLowerCase();
+  const assignee =
+    users.find((user) => normalizedNotes.includes(user.name.toLowerCase())) ||
+    users.find((user) => user.role.toLowerCase() === "manager") ||
+    users[0] ||
+    null;
+  const dueAt = parseAutoTransferDueAt(input.notes);
+  const title = `Auto-transfer: ${detected.department.replace(/_/g, " ")} to connect`;
+
+  const transfer = await prisma.queryTransfer.create({
+    data: {
+      memberId: input.memberId,
+      fromDepartment: input.staffDepartment,
+      toDepartment: detected.department,
+      assignedToUser: assignee?.id || null,
+      assignedToName: assignee?.name || null,
+      assignedToEmail: assignee?.email || null,
+      createdByUser: input.staffUserId,
+      createdByName: input.staffName,
+      createdByEmail: input.staffEmail,
+      reason: input.notes.slice(0, 2000),
+      sourceCallLogId: input.callLogId,
+      priority: "medium",
+      status: "pending",
+    },
+    select: { id: true },
+  });
+
+  if (assignee) {
+    await prisma.followUpTask.create({
+      data: {
+        memberId: input.memberId,
+        title,
+        instructions: input.notes.slice(0, 2000),
+        priority: "medium",
+        status: "pending",
+        dueAt,
+        sourceType: "transfer",
+        assignmentType: "transferred",
+        sourceCallLogId: input.callLogId,
+        sourceTransferId: transfer.id,
+        assignedToUser: assignee.id,
+        assignedToName: assignee.name,
+        assignedToEmail: assignee.email,
+        assignedToDepartment: assignee.department,
+        createdByUser: input.staffUserId || assignee.id,
+        createdByName: input.staffName,
+        createdByEmail: input.staffEmail,
+        createdByDepartment: input.staffDepartment,
+      },
+    });
+  }
+
+  return { department: detected.department, assigneeName: assignee?.name || null };
+}
+
 export async function logCallForMember(
   memberId: string,
   type: "inbound" | "outbound",
@@ -864,6 +1028,7 @@ export async function logCallForMember(
       assignedToUser: string;
       assignedToDepartment: string;
       createdByUser: string;
+      sourceTransferId: string | null;
       status: string;
     } | null = null;
 
@@ -879,6 +1044,7 @@ export async function logCallForMember(
           assignedToUser: true,
           assignedToDepartment: true,
           createdByUser: true,
+          sourceTransferId: true,
           status: true,
         },
       });
@@ -909,6 +1075,7 @@ export async function logCallForMember(
     let staffEmail = session.user.email || "";
     let staffDepartment = session.user.department || "operations";
     let interactionDate = new Date();
+    let autoResolvedTransfer = false;
 
     if (contactedByUserId || contactedAt) {
       if (!isAdminViewer(session.user)) {
@@ -1023,6 +1190,18 @@ export async function logCallForMember(
       });
     }
 
+    const autoTransfer = !escalateDepartment
+      ? await createAutoTransferFromNotes({
+          memberId,
+          notes,
+          callLogId: callLog.id,
+          staffUserId: staffUserId || null,
+          staffName,
+          staffEmail,
+          staffDepartment,
+        })
+      : null;
+
     if (followupTask) {
       await prisma.followUpTask.update({
         where: { id: followupTask.id },
@@ -1034,6 +1213,28 @@ export async function logCallForMember(
           completionNotes: notes,
         },
       });
+
+      const unresolvedAttempt = ["no answer", "did not connect", "not picked", "busy"].some((phrase) =>
+        outcome.toLowerCase().includes(phrase),
+      );
+      if (followupTask.sourceTransferId && !unresolvedAttempt) {
+        const resolved = await prisma.queryTransfer.updateMany({
+          where: {
+            id: followupTask.sourceTransferId,
+            memberId,
+            status: { not: "resolved" },
+          },
+          data: {
+            status: "resolved",
+            resolutionNotes: notes,
+            resolutionMedium: medium,
+            resolvedByName: staffName,
+            resolvedByEmail: staffEmail,
+            resolvedAt: interactionDate,
+          },
+        });
+        autoResolvedTransfer = resolved.count > 0;
+      }
     }
 
     if (preparedFollowUp?.success) {
@@ -1053,10 +1254,11 @@ export async function logCallForMember(
     revalidatePath("/workspace");
     revalidatePath("/members");
     revalidatePath("/followups");
+    revalidatePath("/queries");
     revalidatePath("/calls");
     revalidatePath("/dashboard");
 
-    return { success: true };
+    return { success: true, autoTransfer, autoResolvedTransfer };
   } catch (err: any) {
     console.error("Error logging call:", err);
     return { success: false, error: err.message || "Failed to log interaction" };

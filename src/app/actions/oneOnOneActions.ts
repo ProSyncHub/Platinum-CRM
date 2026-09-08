@@ -6,7 +6,7 @@ import { z } from "zod";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { canAccessMember } from "@/lib/authorization";
 import { prisma } from "@/lib/db";
-import { reconcileOneOnOneSession } from "@/lib/oneOnOneSessions";
+import { manuallyVerifyOneOnOneSession, reconcileOneOnOneSession } from "@/lib/oneOnOneSessions";
 import { hasUserCapability } from "@/lib/accessControl.server";
 import {
   parseZoomMeetingSettings,
@@ -64,6 +64,12 @@ const rescheduleSchema = z.object({
     defaultPassword: z.boolean().optional(),
     autoRecording: z.enum(["cloud", "local", "none"]).optional(),
   }).optional(),
+});
+
+const manualVerifySchema = z.object({
+  sessionId: z.string().regex(OBJECT_ID),
+  verifiedMinutes: z.coerce.number().int().min(1).max(240),
+  reason: z.string().trim().min(5, "Add a short reason for the audit trail.").max(1_000),
 });
 
 function isEligiblePlatinumMember(member: { programType: string; memberCode: string }) {
@@ -407,6 +413,49 @@ export async function syncOneOnOneSession(sessionId: string) {
     return {
       success: false as const,
       error: error instanceof Error ? error.message : "Zoom synchronization failed.",
+    };
+  }
+}
+
+export async function manuallyVerifyOneOnOneAttendance(input: {
+  sessionId: string;
+  verifiedMinutes: number;
+  reason: string;
+}) {
+  const manager = await requireSessionManager();
+  if (!manager.success) return manager;
+
+  const parsed = manualVerifySchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0]?.message || "Invalid verification details." };
+  }
+
+  const crmSession = await prisma.oneOnOneSession.findUnique({
+    where: { id: parsed.data.sessionId },
+    select: { id: true, memberId: true },
+  });
+  if (!crmSession) return { success: false as const, error: "Session not found." };
+  if (!(await canAccessMember(manager.user, crmSession.memberId))) {
+    return { success: false as const, error: "You do not have access to this member." };
+  }
+
+  try {
+    const result = await manuallyVerifyOneOnOneSession({
+      sessionId: crmSession.id,
+      verifiedMinutes: parsed.data.verifiedMinutes,
+      reason: parsed.data.reason,
+      reviewer: {
+        id: manager.user.id,
+        name: manager.user.name,
+        email: manager.user.email,
+      },
+    });
+    revalidateMember(result.memberId);
+    return { success: true as const };
+  } catch (error) {
+    return {
+      success: false as const,
+      error: error instanceof Error ? error.message : "Session could not be manually verified.",
     };
   }
 }

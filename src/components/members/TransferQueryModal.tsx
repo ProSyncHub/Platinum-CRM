@@ -255,6 +255,7 @@ export default function TransferQueryModal({
                     <option>Follow-up required</option>
                     <option>Callback requested</option>
                     <option>Information shared</option>
+                    <option>Did not connect / not picked up</option>
                     <option>No answer</option>
                   </select>
                 </Field>

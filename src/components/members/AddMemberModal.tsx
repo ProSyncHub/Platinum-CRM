@@ -21,8 +21,11 @@ type MemberFormData = {
   phone: string;
   state: string;
   enrollingDate: string;
+  endDate: string;
   plan: string;
+  activeStatus: "Active" | "Not Active" | "On Hold";
   allotedTo: string;
+  oneOnOneSessionAllowance: number;
   businessType: string;
   brandCollaborations: string;
   plBrand: string;
@@ -43,12 +46,15 @@ const FIELD_ALIASES: Record<keyof MemberFormData | "fullName", string[]> = {
   firstName: ["first name", "firstname", "fname", "first"],
   lastName: ["last name", "lastname", "lname", "surname", "last"],
   email: ["email", "email address", "mail", "e-mail"],
-  phone: ["phone", "phone number", "mobile", "mobile number", "whatsapp", "whatsapp number", "contact", "contact number"],
+  phone: ["phone", "phone number", "mobile", "mobile number", "whatsapp", "whatsapp number", "contact", "contact number", "contact no", "contact no."],
   programType: ["program", "program type", "membership", "course", "package", "plan type", "tier"],
   state: ["state", "location", "city", "address", "region"],
   enrollingDate: ["enrollment date", "enrolling date", "joining date", "join date", "start date", "registered at", "date"],
-  plan: ["plan", "duration", "membership plan", "validity"],
+  endDate: ["end date", "expiry date", "expiration date", "valid till", "validity end"],
+  plan: ["plan", "duration", "membership plan", "validity", "plan(yearly/6mon)", "plan yearly 6mon"],
+  activeStatus: ["active status", "status", "active / not active", "active/not active", "active not active"],
   allotedTo: ["assigned executive", "assigned to", "alloted to", "allotted to", "owner", "executive", "counsellor"],
+  oneOnOneSessionAllowance: ["1 on 1 sessions", "one on one sessions", "sessions", "session allowance", "1:1 allowance", "one-on-one allowance"],
   businessType: ["business type", "business", "model", "seller type"],
   brandCollaborations: ["brand", "brands", "brand collaborations", "pl brand", "private label", "reselling brand"],
   plBrand: ["pl brand name", "private label brand", "own brand"],
@@ -95,6 +101,15 @@ function normalizeDateInput(value: string) {
   return "";
 }
 
+function calculateEndDate(enrollingDate: string, plan: string) {
+  const start = enrollingDate ? new Date(enrollingDate) : new Date();
+  if (Number.isNaN(start.getTime())) return "";
+  if (plan.toLowerCase().includes("year")) start.setFullYear(start.getFullYear() + 1);
+  else if (plan.toLowerCase().includes("life")) start.setFullYear(start.getFullYear() + 25);
+  else start.setMonth(start.getMonth() + 6);
+  return start.toISOString().split("T")[0];
+}
+
 function normalizeStage(value: string): MemberFormData["currentStage"] {
   const stage = value.toLowerCase();
   if (stage.includes("research")) return "research";
@@ -120,7 +135,21 @@ function normalizeProgram(value: string, programs: any[], fallback: string) {
   return value;
 }
 
+function normalizeActiveStatus(value: string): MemberFormData["activeStatus"] {
+  const status = value.trim().toLowerCase();
+  if (status.includes("hold")) return "On Hold";
+  if (status.includes("not") || status.includes("inactive") || status.includes("expired")) return "Not Active";
+  return "Active";
+}
+
+function normalizeSessionAllowance(value: string, fallback: number) {
+  const parsed = Number(String(value || "").match(/\d+/)?.[0] || fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(50, Math.round(parsed)));
+}
+
 function makeDefaultMember(programs: any[], executives: string[]): MemberFormData {
+  const enrollingDate = new Date().toISOString().split("T")[0];
   return {
     programType: programs[0]?.name || "Platinum",
     firstName: "",
@@ -128,9 +157,12 @@ function makeDefaultMember(programs: any[], executives: string[]): MemberFormDat
     email: "",
     phone: "",
     state: "",
-    enrollingDate: new Date().toISOString().split("T")[0],
+    enrollingDate,
+    endDate: calculateEndDate(enrollingDate, "6 Months"),
     plan: "6 Months",
+    activeStatus: "Active",
     allotedTo: executives[0] || "Samyak",
+    oneOnOneSessionAllowance: 6,
     businessType: "Reseller",
     brandCollaborations: "",
     plBrand: "",
@@ -146,13 +178,24 @@ function mapColumnIndexes(headers: unknown[]) {
   const normalized = headers.map(normalizeHeader);
   const indexes: Partial<Record<keyof MemberFormData | "fullName", number>> = {};
   for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
-    const index = normalized.findIndex((header) => aliases.includes(header));
+    const index = normalized.findIndex((header) =>
+      aliases.some((alias) => header === alias || header.includes(alias)),
+    );
     if (index >= 0) indexes[field as keyof MemberFormData | "fullName"] = index;
   }
   return indexes;
 }
 
-function rowsToMembers(rawRows: unknown[][], programs: any[], executives: string[]): BulkPreviewRow[] {
+function rowsToMembers(
+  rawRows: unknown[][],
+  programs: any[],
+  executives: string[],
+  defaults?: {
+    programType?: string;
+    activeStatus?: MemberFormData["activeStatus"];
+    oneOnOneSessionAllowance?: number;
+  },
+): BulkPreviewRow[] {
   const rows = rawRows.filter((row) => row.some((cell) => normalizeCell(cell)));
   if (rows.length === 0) return [];
   const headerIndexes = mapColumnIndexes(rows[0]);
@@ -169,7 +212,14 @@ function rowsToMembers(rawRows: unknown[][], programs: any[], executives: string
         notes: 5,
       };
   const dataRows = hasHeader ? rows.slice(1) : rows;
-  const fallback = makeDefaultMember(programs, executives);
+  const defaultMember = makeDefaultMember(programs, executives);
+  const fallback = {
+    ...defaultMember,
+    programType: defaults?.programType || defaultMember.programType,
+    activeStatus: defaults?.activeStatus || defaultMember.activeStatus,
+    oneOnOneSessionAllowance:
+      defaults?.oneOnOneSessionAllowance ?? defaultMember.oneOnOneSessionAllowance,
+  };
 
   return dataRows.map((row, index) => {
     const get = (field: keyof MemberFormData | "fullName") => {
@@ -186,8 +236,14 @@ function rowsToMembers(rawRows: unknown[][], programs: any[], executives: string
       programType: normalizeProgram(get("programType"), programs, fallback.programType),
       state: get("state"),
       enrollingDate: normalizeDateInput(get("enrollingDate")) || fallback.enrollingDate,
+      endDate: normalizeDateInput(get("endDate")) || fallback.endDate,
       plan: get("plan") || fallback.plan,
+      activeStatus: get("activeStatus") ? normalizeActiveStatus(get("activeStatus")) : fallback.activeStatus,
       allotedTo: get("allotedTo") || fallback.allotedTo,
+      oneOnOneSessionAllowance: normalizeSessionAllowance(
+        get("oneOnOneSessionAllowance"),
+        fallback.oneOnOneSessionAllowance,
+      ),
       businessType: get("businessType") || fallback.businessType,
       brandCollaborations: get("brandCollaborations"),
       plBrand: get("plBrand"),
@@ -245,6 +301,9 @@ export default function AddMemberModal({
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"single" | "bulk">("single");
   const [formData, setFormData] = useState<MemberFormData>(() => makeDefaultMember(programs, executives));
+  const [bulkProgramType, setBulkProgramType] = useState(programs[0]?.name || "Platinum");
+  const [bulkSessionAllowance, setBulkSessionAllowance] = useState(6);
+  const [bulkActiveStatus, setBulkActiveStatus] = useState<MemberFormData["activeStatus"]>("Active");
   const [bulkText, setBulkText] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkPreviewRow[]>([]);
   const [bulkResult, setBulkResult] = useState<Awaited<ReturnType<typeof createMembersBulk>> | null>(null);
@@ -284,7 +343,11 @@ export default function AddMemberModal({
       toast.error("Paste rows from Excel first.");
       return;
     }
-    const rows = rowsToMembers(parsePastedTable(bulkText), programs, executives);
+    const rows = rowsToMembers(parsePastedTable(bulkText), programs, executives, {
+      programType: bulkProgramType,
+      activeStatus: bulkActiveStatus,
+      oneOnOneSessionAllowance: bulkSessionAllowance,
+    });
     setBulkRows(rows);
     setBulkResult(null);
     toast.success(`${rows.length} row${rows.length === 1 ? "" : "s"} mapped from pasted data.`);
@@ -310,7 +373,11 @@ export default function AddMemberModal({
         toast.error("Upload an .xlsx, .csv, or .tsv file.");
         return;
       }
-      const rows = rowsToMembers(parsedRows, programs, executives);
+      const rows = rowsToMembers(parsedRows, programs, executives, {
+        programType: bulkProgramType,
+        activeStatus: bulkActiveStatus,
+        oneOnOneSessionAllowance: bulkSessionAllowance,
+      });
       setBulkRows(rows);
       setBulkResult(null);
       toast.success(`${rows.length} row${rows.length === 1 ? "" : "s"} mapped from ${file.name}.`);
@@ -389,9 +456,56 @@ export default function AddMemberModal({
               <p className="font-bold">Flexible import format</p>
               <p className="mt-1">
                 Upload Excel/CSV or paste rows copied from Excel. Headers can be flexible: Full Name, Name,
-                Phone, Mobile, WhatsApp, Email, Program, State, Assigned To, Stage, Sales, Budget, Notes.
+                First Name, Last Name, Contact no., Email, State, Enrolling Date, End Date,
+                Plan, Active / Not Active, Alloted to, Assigned To, Stage, Sales, Budget, Notes.
               </p>
               <p className="mt-1 font-semibold">Required per row: name and phone. Existing phone/email contacts will be skipped.</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-black text-slate-950">Bulk import defaults</p>
+              <p className="mt-1 text-xs text-slate-500">
+                These apply when the Excel/pasted rows do not have that column. Row values still win if present.
+              </p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <label className="block text-xs font-bold uppercase tracking-wide text-slate-600">
+                  Program
+                  <select
+                    value={bulkProgramType}
+                    onChange={(event) => setBulkProgramType(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-slate-950 outline-none focus:border-amber-500"
+                  >
+                    {programs.map((program) => (
+                      <option key={program.name} value={program.name}>
+                        {program.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-bold uppercase tracking-wide text-slate-600">
+                  1-on-1 sessions
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={bulkSessionAllowance}
+                    onChange={(event) => setBulkSessionAllowance(Number(event.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-slate-950 outline-none focus:border-amber-500"
+                  />
+                </label>
+                <label className="block text-xs font-bold uppercase tracking-wide text-slate-600">
+                  Active status
+                  <select
+                    value={bulkActiveStatus}
+                    onChange={(event) => setBulkActiveStatus(event.target.value as MemberFormData["activeStatus"])}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-slate-950 outline-none focus:border-amber-500"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Not Active">Not Active</option>
+                    <option value="On Hold">On Hold</option>
+                  </select>
+                </label>
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -458,6 +572,7 @@ export default function AddMemberModal({
                         <th className="px-3 py-2">Phone</th>
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Program</th>
+                        <th className="px-3 py-2">Sessions</th>
                         <th className="px-3 py-2">Assigned</th>
                         <th className="px-3 py-2">Status</th>
                       </tr>
@@ -470,6 +585,7 @@ export default function AddMemberModal({
                           <td className="px-3 py-2">{row.phone || "—"}</td>
                           <td className="px-3 py-2">{row.email || "—"}</td>
                           <td className="px-3 py-2">{row.programType}</td>
+                          <td className="px-3 py-2">{row.oneOnOneSessionAllowance}</td>
                           <td className="px-3 py-2">{row.allotedTo}</td>
                           <td className="px-3 py-2">
                             {row.warnings.length ? (
@@ -646,7 +762,14 @@ export default function AddMemberModal({
                 <input
                   type="date"
                   value={formData.enrollingDate}
-                  onChange={(e) => setFormData({ ...formData, enrollingDate: e.target.value })}
+                  onChange={(e) => {
+                    const enrollingDate = e.target.value;
+                    setFormData({
+                      ...formData,
+                      enrollingDate,
+                      endDate: calculateEndDate(enrollingDate, formData.plan),
+                    });
+                  }}
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white text-sm font-medium"
                 />
               </div>
@@ -658,12 +781,63 @@ export default function AddMemberModal({
               </label>
               <select
                 value={formData.plan}
-                onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
+                onChange={(e) => {
+                  const plan = e.target.value;
+                  setFormData({
+                    ...formData,
+                    plan,
+                    endDate: calculateEndDate(formData.enrollingDate, plan),
+                  });
+                }}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white text-sm font-medium"
               >
                 <option value="6 Months">6 Months Plan (180 Days)</option>
                 <option value="Yearly">Yearly Plan (365 Days)</option>
                 <option value="Lifetime">Lifetime Access</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                End Date
+              </label>
+              <div className="relative">
+                <Calendar className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                <input
+                  type="date"
+                  value={formData.endDate}
+                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white text-sm font-medium"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                1-on-1 Sessions Included
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                value={formData.oneOnOneSessionAllowance}
+                onChange={(e) => setFormData({ ...formData, oneOnOneSessionAllowance: Number(e.target.value) })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Active Status
+              </label>
+              <select
+                value={formData.activeStatus}
+                onChange={(e) => setFormData({ ...formData, activeStatus: e.target.value as MemberFormData["activeStatus"] })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white text-sm font-medium"
+              >
+                <option value="Active">Active</option>
+                <option value="Not Active">Not Active</option>
+                <option value="On Hold">On Hold</option>
               </select>
             </div>
           </div>
