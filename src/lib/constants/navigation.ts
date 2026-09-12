@@ -7,6 +7,7 @@ import {
   BarChart3,
   Handshake,
   Inbox,
+  MessageCircle,
   Send,
 } from "lucide-react";
 
@@ -30,6 +31,13 @@ export const navigation = [
     title: "Leads",
     href: "/leads",
     icon: Inbox,
+    capability: "leads.manage",
+  },
+  {
+    title: "WATI",
+    href: "/wati",
+    icon: MessageCircle,
+    capability: "leads.wati",
   },
   {
     title: "Calls",

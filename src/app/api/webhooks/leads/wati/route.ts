@@ -63,6 +63,7 @@ export async function handleWatiLeadWebhook(request: Request, explicitSecret?: s
     input: normalized.input,
     defaultCampaign: wati.defaultCampaign,
     rawPayload: payload,
+    sourceSlug: "wati",
   });
 
   return NextResponse.json({ accepted: true, ...result });

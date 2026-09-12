@@ -100,6 +100,59 @@ function oneOnOneTimelineTitle(session: OneOnOneSessionView) {
   return `1-on-1 session ${session.sessionNumber}`;
 }
 
+const COMMUNICATION_SOURCE_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "manual", label: "Normal logs" },
+  { key: "wati", label: "WATI / WhatsApp" },
+  { key: "mailerlite", label: "MailerLite" },
+  { key: "gmail", label: "Gmail" },
+  { key: "zoom", label: "Zoom 1:1" },
+] as const;
+
+function communicationSourceKey(log: any) {
+  const source = String(log?.source || "manual").toLowerCase();
+  const medium = String(log?.medium || "").toLowerCase();
+  const staffName = String(log?.staffName || "").toLowerCase();
+
+  if (source.includes("mailerlite") || staffName.includes("mailerlite")) return "mailerlite";
+  if (source.includes("gmail") || staffName.includes("gmail")) return "gmail";
+  if (source.includes("wati") || medium.includes("whatsapp")) return "wati";
+  if (source.includes("zoom") || medium.includes("zoom")) return "zoom";
+  return "manual";
+}
+
+function communicationSourceMeta(log: any) {
+  const key = communicationSourceKey(log);
+  if (key === "mailerlite") {
+    return {
+      label: "MailerLite",
+      className: "border-sky-200 bg-sky-50 text-sky-800",
+    };
+  }
+  if (key === "gmail") {
+    return {
+      label: "Gmail",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-800",
+    };
+  }
+  if (key === "wati") {
+    return {
+      label: "WATI",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    };
+  }
+  if (key === "zoom") {
+    return {
+      label: "Zoom automation",
+      className: "border-blue-200 bg-blue-50 text-blue-800",
+    };
+  }
+  return {
+    label: "Normal CRM log",
+    className: "border-slate-200 bg-white text-slate-700",
+  };
+}
+
 export default function MemberDetailClient({
   member: initialMember,
   userRole = "employee",
@@ -137,6 +190,7 @@ export default function MemberDetailClient({
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [resolvingTransfer, setResolvingTransfer] = useState<any | null>(null);
   const [editingCallLog, setEditingCallLog] = useState<any | null>(null);
+  const [communicationFilter, setCommunicationFilter] = useState<(typeof COMMUNICATION_SOURCE_FILTERS)[number]["key"]>("all");
 
   const progMeta = getProgramMeta(
     member.programType || (member.memberCode?.startsWith("PNP") ? "PNP" : "Platinum")
@@ -150,6 +204,32 @@ export default function MemberDetailClient({
     getContactAttentionStatus(member.lastConnectDate, member.nextConnectDate);
 
   const lastMedium = getMediumMeta(member.lastContactMedium);
+
+  const callLogs = useMemo(() => member.callLogs || [], [member.callLogs]);
+  const communicationCounts = useMemo(() => {
+    const counts = Object.fromEntries(COMMUNICATION_SOURCE_FILTERS.map((filter) => [filter.key, 0])) as Record<
+      (typeof COMMUNICATION_SOURCE_FILTERS)[number]["key"],
+      number
+    >;
+    counts.all = callLogs.length + oneOnOneTimeline.length;
+    counts.zoom = oneOnOneTimeline.length;
+    for (const log of callLogs) {
+      const key = communicationSourceKey(log) as keyof typeof counts;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  }, [callLogs, oneOnOneTimeline]);
+  const filteredCallLogs = useMemo(
+    () =>
+      communicationFilter === "all"
+        ? callLogs
+        : callLogs.filter((log: any) => communicationSourceKey(log) === communicationFilter),
+    [callLogs, communicationFilter],
+  );
+  const filteredOneOnOneTimeline = useMemo(
+    () => (communicationFilter === "all" || communicationFilter === "zoom" ? oneOnOneTimeline : []),
+    [communicationFilter, oneOnOneTimeline],
+  );
 
   const currentStageIndex = PLATINUM_STAGES.findIndex(
     (s) => s.id === member.currentStage
@@ -501,10 +581,10 @@ export default function MemberDetailClient({
               <div>
                 <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <PhoneCall className="w-4 h-4 text-emerald-600" />
-                  Communication & Call Connect Timeline ({(member.callLogs?.length || 0) + oneOnOneTimeline.length})
+                  Communication & Call Connect Timeline ({communicationCounts.all})
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Recorded outreach via Phone, WhatsApp, Zoom 1:1, Email & SMS
+                  Recorded outreach via normal logs, WATI, MailerLite, Gmail, Zoom 1:1 & SMS
                 </p>
               </div>
               <button
@@ -515,8 +595,32 @@ export default function MemberDetailClient({
               </button>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              {COMMUNICATION_SOURCE_FILTERS.map((filter) => {
+                const isActive = communicationFilter === filter.key;
+                const count = communicationCounts[filter.key] || 0;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => setCommunicationFilter(filter.key)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition-colors ${
+                      isActive
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {filter.label}
+                    <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] ${isActive ? "bg-white/15" : "bg-slate-100 text-slate-500"}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="space-y-3">
-              {oneOnOneTimeline.map((session) => (
+              {filteredOneOnOneTimeline.map((session) => (
                 <div
                   key={`one-on-one-${session.id}`}
                   className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 space-y-2"
@@ -555,9 +659,10 @@ export default function MemberDetailClient({
                   )}
                 </div>
               ))}
-              {member.callLogs && member.callLogs.length > 0 ? (
-                member.callLogs.map((log: any) => {
+              {filteredCallLogs.length > 0 ? (
+                filteredCallLogs.map((log: any) => {
                   const mediumMeta = getMediumMeta(log.medium);
+                  const sourceMeta = communicationSourceMeta(log);
                   return (
                     <div
                       key={log.id}
@@ -568,6 +673,10 @@ export default function MemberDetailClient({
                           {/* Medium Badge */}
                           <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase border ${mediumMeta.badgeClass}`}>
                             {mediumMeta.label}
+                          </span>
+
+                          <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase border ${sourceMeta.className}`}>
+                            {sourceMeta.label}
                           </span>
 
                           <span
@@ -648,8 +757,8 @@ export default function MemberDetailClient({
                   );
                 })
               ) : (
-                oneOnOneTimeline.length === 0 && <div className="py-8 text-center text-slate-500 text-xs">
-                  No communication logs recorded yet. Click "Log Communication" above to record a conversation.
+                filteredOneOnOneTimeline.length === 0 && <div className="py-8 text-center text-slate-500 text-xs">
+                  No communication logs found for this filter. Choose “All” or click “Log / transfer” to record a conversation.
                 </div>
               )}
             </div>

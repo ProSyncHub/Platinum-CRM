@@ -54,7 +54,7 @@ const FIELD_ALIASES: Record<keyof MemberFormData | "fullName", string[]> = {
   plan: ["plan", "duration", "membership plan", "validity", "plan(yearly/6mon)", "plan yearly 6mon"],
   activeStatus: ["active status", "status", "active / not active", "active/not active", "active not active"],
   allotedTo: ["assigned executive", "assigned to", "alloted to", "allotted to", "owner", "executive", "counsellor"],
-  oneOnOneSessionAllowance: ["1 on 1 sessions", "one on one sessions", "sessions", "session allowance", "1:1 allowance", "one-on-one allowance"],
+  oneOnOneSessionAllowance: ["1 on 1 sessions", "one on one sessions", "one on one session", "sessions", "session allowance", "1:1 allowance", "one-on-one allowance"],
   businessType: ["business type", "business", "model", "seller type"],
   brandCollaborations: ["brand", "brands", "brand collaborations", "pl brand", "private label", "reselling brand"],
   plBrand: ["pl brand name", "private label brand", "own brand"],
@@ -573,6 +573,8 @@ export default function AddMemberModal({
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Program</th>
                         <th className="px-3 py-2">Sessions</th>
+                        <th className="px-3 py-2">End</th>
+                        <th className="px-3 py-2">Active</th>
                         <th className="px-3 py-2">Assigned</th>
                         <th className="px-3 py-2">Status</th>
                       </tr>
@@ -586,6 +588,8 @@ export default function AddMemberModal({
                           <td className="px-3 py-2">{row.email || "—"}</td>
                           <td className="px-3 py-2">{row.programType}</td>
                           <td className="px-3 py-2">{row.oneOnOneSessionAllowance}</td>
+                          <td className="px-3 py-2">{row.endDate || "—"}</td>
+                          <td className="px-3 py-2">{row.activeStatus}</td>
                           <td className="px-3 py-2">{row.allotedTo}</td>
                           <td className="px-3 py-2">
                             {row.warnings.length ? (

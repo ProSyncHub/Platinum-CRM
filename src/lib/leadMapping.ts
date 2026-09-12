@@ -186,7 +186,11 @@ export function normalizeLeadResponse(value?: string | null): LeadResponseCode {
     normalized.includes("have a question") ||
     normalized.includes("i have question") ||
     normalized.includes("question") ||
-    normalized.includes("have a query")
+    normalized.includes("have a query") ||
+    normalized.includes("query") ||
+    normalized.includes("doubt") ||
+    normalized.includes("need help") ||
+    normalized.includes("help with")
   ) {
     return "has_question";
   }

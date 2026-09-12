@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const PAGE_SIZE = 40;
 const VALID_STATUSES = new Set(["new", "contacted", "qualified", "converted", "closed"]);
 
-export default async function LeadsPage({
+export default async function WatiPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -19,24 +19,29 @@ export default async function LeadsPage({
   const session = await getServerSession(authOptions);
   await ensureDefaultLeadSources();
   if (!session?.user) {
-    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-700">Please sign in to open leads.</div>;
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-700">Please sign in to open WATI.</div>;
   }
-  const canManageLeads = await hasUserCapability(session.user, "leads.manage");
-  if (!canManageLeads) {
-    return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-950">You do not have access to generic leads. Ask the Owner to enable “Manage leads” for your role.</div>;
+
+  const [canManageLeads, canAccessWatiLeads, canAssignLeads] = await Promise.all([
+    hasUserCapability(session.user, "leads.manage"),
+    hasUserCapability(session.user, "leads.wati"),
+    hasUserCapability(session.user, "leads.assign"),
+  ]);
+  const canOpenWatiQueue = canManageLeads || canAccessWatiLeads || canAssignLeads;
+  if (!canOpenWatiQueue) {
+    return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-950">You do not have access to WATI. Ask the Owner to enable “Access WATI leads” for your role.</div>;
   }
 
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
-  const requestedSourceSlug = typeof params.source === "string" ? params.source : "";
-  const sourceSlug = requestedSourceSlug === "wati" ? "" : requestedSourceSlug;
   const status =
     typeof params.status === "string" && VALID_STATUSES.has(params.status) ? params.status : "";
   const requestedPage = typeof params.page === "string" ? Number(params.page) : 1;
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.trunc(requestedPage)) : 1;
+  const viewerDepartment = session.user.department?.trim() || "";
 
   const where: Prisma.LeadWhereInput = {
-    source: sourceSlug ? { slug: sourceSlug } : { slug: { not: "wati" } },
+    source: { slug: "wati" },
     ...(status ? { status } : {}),
     ...(query
       ? {
@@ -45,14 +50,34 @@ export default async function LeadsPage({
             { phone: { contains: query } },
             { email: { contains: query, mode: "insensitive" } },
             { campaign: { contains: query, mode: "insensitive" } },
+            { responseText: { contains: query, mode: "insensitive" } },
+            { notes: { contains: query, mode: "insensitive" } },
           ],
         }
       : {}),
   };
 
-  const [sources, totalFiltered, leads, totalLeads, newLeads, questionLeads, watiLeads, imports, staff] =
+  if (!canManageLeads && !canAssignLeads) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      {
+        OR: [
+          ...(session.user.id ? [{ assignedToUser: session.user.id }] : []),
+          ...(session.user.email
+            ? [{ assignedToEmail: { equals: session.user.email, mode: "insensitive" as const } }]
+            : []),
+          ...(viewerDepartment
+            ? [{ assignedToDepartment: { equals: viewerDepartment, mode: "insensitive" as const } }]
+            : []),
+        ],
+      },
+    ];
+  }
+
+  const [sources, totalFiltered, leads, totalLeads, newLeads, questionLeads, watiLeads, staff] =
     await Promise.all([
       prisma.leadSource.findMany({
+        where: { slug: "wati" },
         select: {
           id: true,
           name: true,
@@ -67,7 +92,6 @@ export default async function LeadsPage({
           createdAt: true,
           updatedAt: true,
         },
-        orderBy: [{ active: "desc" }, { name: "asc" }],
       }),
       prisma.lead.count({ where }),
       prisma.lead.findMany({
@@ -80,15 +104,16 @@ export default async function LeadsPage({
         skip: (page - 1) * PAGE_SIZE,
         take: PAGE_SIZE,
       }),
-      prisma.lead.count({ where: { source: { slug: { not: "wati" } } } }),
-      prisma.lead.count({ where: { source: { slug: { not: "wati" } }, status: "new" } }),
-      prisma.lead.count({ where: { source: { slug: { not: "wati" } }, responseCode: "has_question", status: { not: "closed" } } }),
       prisma.lead.count({ where: { source: { slug: "wati" } } }),
-      prisma.leadImportBatch.findMany({
-        include: { source: { select: { name: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 5,
+      prisma.lead.count({ where: { source: { slug: "wati" }, status: "new" } }),
+      prisma.lead.count({
+        where: {
+          source: { slug: "wati" },
+          responseCode: "has_question",
+          status: { not: "closed" },
+        },
       }),
+      prisma.lead.count({ where: { source: { slug: "wati" } } }),
       prisma.user.findMany({
         where: { active: true },
         select: { id: true, name: true, email: true, department: true },
@@ -96,8 +121,8 @@ export default async function LeadsPage({
       }),
     ]);
 
-  const role = session?.user?.role?.toLowerCase() || "employee";
-  const isAdmin = canManageLeads || role === "admin" || role === "superadmin";
+  const role = session.user.role?.toLowerCase() || "employee";
+  const isAdmin = canManageLeads || role === "admin" || role === "superadmin" || role === "owner";
 
   return (
     <LeadsWorkspace
@@ -107,29 +132,19 @@ export default async function LeadsPage({
         createdAt: lead.createdAt.toISOString(),
         updatedAt: lead.updatedAt.toISOString(),
       }))}
-      sources={sources.filter((source) => source.slug !== "wati").map((source) => ({
+      sources={sources.map((source) => ({
         ...source,
         createdAt: source.createdAt.toISOString(),
         updatedAt: source.updatedAt.toISOString(),
       }))}
-      imports={imports.map((batch) => ({
-        id: batch.id,
-        fileName: batch.fileName,
-        status: batch.status,
-        totalRows: batch.totalRows,
-        imported: batch.imported,
-        skipped: batch.skipped,
-        failed: batch.failed,
-        createdAt: batch.createdAt.toISOString(),
-        source: batch.source,
-      }))}
+      imports={[]}
       stats={{ totalLeads, newLeads, questionLeads, watiLeads }}
-      filters={{ query, source: sourceSlug, status }}
+      filters={{ query, source: "wati", status }}
       pagination={{ page, pageSize: PAGE_SIZE, total: totalFiltered }}
       isAdmin={isAdmin}
-      canAssignLeads={canManageLeads}
+      canAssignLeads={canManageLeads || canAssignLeads}
       staff={staff}
-      mode="leads"
+      mode="wati"
     />
   );
 }

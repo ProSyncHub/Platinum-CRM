@@ -930,71 +930,110 @@ async function createAutoTransferFromNotes(input: {
   staffEmail: string;
   staffDepartment: string;
 }) {
-  const detected = detectAutoTransfer(input.notes);
-  if (!detected) return null;
-
-  const users = await prisma.user.findMany({
-    where: {
-      active: true,
-      department: { equals: detected.department, mode: "insensitive" },
-    },
+  const allUsers = await prisma.user.findMany({
+    where: { active: true },
     select: { id: true, name: true, email: true, department: true, role: true },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
-  const normalizedNotes = input.notes.toLowerCase();
-  const assignee =
-    users.find((user) => normalizedNotes.includes(user.name.toLowerCase())) ||
-    users.find((user) => user.role.toLowerCase() === "manager") ||
-    users[0] ||
-    null;
-  const dueAt = parseAutoTransferDueAt(input.notes);
-  const title = `Auto-transfer: ${detected.department.replace(/_/g, " ")} to connect`;
 
-  const transfer = await prisma.queryTransfer.create({
-    data: {
-      memberId: input.memberId,
-      fromDepartment: input.staffDepartment,
-      toDepartment: detected.department,
-      assignedToUser: assignee?.id || null,
-      assignedToName: assignee?.name || null,
-      assignedToEmail: assignee?.email || null,
-      createdByUser: input.staffUserId,
-      createdByName: input.staffName,
-      createdByEmail: input.staffEmail,
-      reason: input.notes.slice(0, 2000),
-      sourceCallLogId: input.callLogId,
-      priority: "medium",
-      status: "pending",
-    },
-    select: { id: true },
-  });
+  const slashRequests = input.notes
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.includes("/"))
+    .map((part) => {
+      const slashIndex = part.lastIndexOf("/");
+      const requestText = part.slice(0, slashIndex).trim() || part.trim();
+      const targetText = part.slice(slashIndex + 1).trim().toLowerCase();
+      const assignee =
+        allUsers.find((user) => {
+          const name = user.name.toLowerCase();
+          const email = user.email.toLowerCase();
+          return (
+            targetText === name ||
+            name.includes(targetText) ||
+            targetText.includes(name) ||
+            email.startsWith(targetText) ||
+            targetText.includes(email.split("@")[0])
+          );
+        }) || null;
+      const departmentRule =
+        AUTO_TRANSFER_DEPARTMENTS.find((rule) =>
+          rule.department === targetText ||
+          rule.keywords.some((keyword) => targetText.includes(keyword)),
+        ) || null;
+      const department = assignee?.department || departmentRule?.department || "";
+      return department ? { notes: requestText, department, assignee } : null;
+    })
+    .filter((item): item is { notes: string; department: string; assignee: (typeof allUsers)[number] | null } => Boolean(item));
 
-  if (assignee) {
-    await prisma.followUpTask.create({
+  const fallback = slashRequests.length ? null : detectAutoTransfer(input.notes);
+  const requests = slashRequests.length
+    ? slashRequests
+    : fallback
+      ? [
+          {
+            notes: input.notes,
+            department: fallback.department,
+            assignee:
+              allUsers.find((user) => normalizeDepartment(user.department) === normalizeDepartment(fallback.department) && input.notes.toLowerCase().includes(user.name.toLowerCase())) ||
+              allUsers.find((user) => normalizeDepartment(user.department) === normalizeDepartment(fallback.department) && user.role.toLowerCase() === "manager") ||
+              allUsers.find((user) => normalizeDepartment(user.department) === normalizeDepartment(fallback.department)) ||
+              null,
+          },
+        ]
+      : [];
+
+  const created: Array<{ department: string; assigneeName: string | null }> = [];
+  for (const request of requests.slice(0, 6)) {
+    const dueAt = parseAutoTransferDueAt(request.notes);
+    const title = `Auto-transfer: ${request.department.replace(/_/g, " ")} to connect`;
+    const transfer = await prisma.queryTransfer.create({
       data: {
         memberId: input.memberId,
-        title,
-        instructions: input.notes.slice(0, 2000),
-        priority: "medium",
-        status: "pending",
-        dueAt,
-        sourceType: "transfer",
-        assignmentType: "transferred",
-        sourceCallLogId: input.callLogId,
-        sourceTransferId: transfer.id,
-        assignedToUser: assignee.id,
-        assignedToName: assignee.name,
-        assignedToEmail: assignee.email,
-        assignedToDepartment: assignee.department,
-        createdByUser: input.staffUserId || assignee.id,
+        fromDepartment: input.staffDepartment,
+        toDepartment: request.department,
+        assignedToUser: request.assignee?.id || null,
+        assignedToName: request.assignee?.name || null,
+        assignedToEmail: request.assignee?.email || null,
+        createdByUser: input.staffUserId,
         createdByName: input.staffName,
         createdByEmail: input.staffEmail,
-        createdByDepartment: input.staffDepartment,
+        reason: request.notes.slice(0, 2000),
+        sourceCallLogId: input.callLogId,
+        priority: "medium",
+        status: "pending",
       },
+      select: { id: true },
     });
+
+    if (request.assignee) {
+      await prisma.followUpTask.create({
+        data: {
+          memberId: input.memberId,
+          title,
+          instructions: request.notes.slice(0, 2000),
+          priority: "medium",
+          status: "pending",
+          dueAt,
+          sourceType: "transfer",
+          assignmentType: "transferred",
+          sourceCallLogId: input.callLogId,
+          sourceTransferId: transfer.id,
+          assignedToUser: request.assignee.id,
+          assignedToName: request.assignee.name,
+          assignedToEmail: request.assignee.email,
+          assignedToDepartment: request.assignee.department,
+          createdByUser: input.staffUserId || request.assignee.id,
+          createdByName: input.staffName,
+          createdByEmail: input.staffEmail,
+          createdByDepartment: input.staffDepartment,
+        },
+      });
+    }
+    created.push({ department: request.department, assigneeName: request.assignee?.name || null });
   }
 
-  return { department: detected.department, assigneeName: assignee?.name || null };
+  return created.length ? created : null;
 }
 
 export async function logCallForMember(

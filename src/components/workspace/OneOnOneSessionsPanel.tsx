@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
-  MessageSquareText,
   RefreshCw,
   RotateCcw,
   Sparkles,
@@ -313,7 +312,6 @@ export default function OneOnOneSessionsPanel({
           const legacyCompleted = !session && sessionNumber <= (member.oneOnOneSessions || 0);
           const status = session?.status || (legacyCompleted ? "completed" : "available");
           const active = legacyCompleted || Boolean(session && !["cancelled", "failed"].includes(session.status));
-          const recordingCount = recordingFileCount(session?.recordingJson);
           return (
             <article
               key={sessionNumber}
@@ -351,9 +349,9 @@ export default function OneOnOneSessionsPanel({
               </div>
 
               {session && (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3 space-y-2">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-1.5">
                       <p>
                         Zoom ID:{" "}
                         <strong className="text-slate-800">
@@ -390,15 +388,6 @@ export default function OneOnOneSessionsPanel({
                         </strong>
                       </p>
                     </div>
-                    {session.aiSummary ? (
-                      <p className="mt-2 line-clamp-2 rounded-xl bg-white p-2 leading-5 text-slate-700">
-                        {session.aiSummary}
-                      </p>
-                    ) : (
-                      <p className="mt-2 rounded-xl bg-white p-2 leading-5 text-slate-500">
-                        {sessionStatusHint(session)}
-                      </p>
-                    )}
                   </div>
 
                   <div className="space-y-1 text-xs text-slate-500">
@@ -406,16 +395,10 @@ export default function OneOnOneSessionsPanel({
                     <p className="flex items-center gap-1.5">
                       <Clock3 className="h-3.5 w-3.5" /> Planned for {session.plannedDuration} minutes
                     </p>
-                    {session.actualStart && (
-                      <p>Actual start: <strong className="text-slate-700">{formatDate(session.actualStart)}</strong></p>
-                    )}
-                    {session.actualEnd && (
-                      <p>Actual end: <strong className="text-slate-700">{formatDate(session.actualEnd)}</strong></p>
-                    )}
                     {session.verifiedMinutes ? (
                       <p className="flex items-center gap-1.5 text-emerald-700">
                         <CheckCircle2 className="h-3.5 w-3.5" />
-                        <strong>{session.verifiedMinutes} verified Amar/member overlap minutes</strong>
+                        <strong>{session.verifiedMinutes} verified minutes</strong>
                       </p>
                     ) : (
                       <p className="flex items-center gap-1.5 text-amber-700">
@@ -424,49 +407,11 @@ export default function OneOnOneSessionsPanel({
                       </p>
                     )}
                   </div>
-
-                  <FieldBlock title="Current automation state" tone={status === "completed" ? "emerald" : status === "scheduled" ? "indigo" : "amber"}>
-                    <p>{sessionStatusHint(session)}</p>
-                    <p className="mt-1">
-                      Attendance: <strong>{titleCase(session.attendanceStatus)}</strong>
-                      {session.attendanceMatchMethod ? ` · Match: ${titleCase(session.attendanceMatchMethod)}` : ""}
-                    </p>
-                    <p>
-                      Transcript: <strong>{titleCase(session.transcriptStatus)}</strong> · AI analysis: <strong>{titleCase(session.aiStatus)}</strong>
-                      {recordingCount > 0 ? ` · ${recordingCount} recording file${recordingCount === 1 ? "" : "s"} captured` : ""}
-                    </p>
-                  </FieldBlock>
-
-                  {(session.memberQuestions || session.preparationNotes) && (
-                    <FieldBlock title="Before the 1-on-1" tone="slate">
-                      {session.memberQuestions && <p><strong>Member wanted to discuss:</strong> {session.memberQuestions}</p>}
-                      {session.preparationNotes && <p className="mt-1"><strong>Internal prep notes:</strong> {session.preparationNotes}</p>}
-                    </FieldBlock>
-                  )}
-
-                  {(session.aiSummary || session.postMeetingNotes) && (
-                    <FieldBlock title="What happened" tone="violet">
-                      {session.aiSummary && <p>{session.aiSummary}</p>}
-                      {session.postMeetingNotes && <p className="mt-1"><strong>Manual note:</strong> {session.postMeetingNotes}</p>}
-                    </FieldBlock>
-                  )}
-
-                  {session.status === "scheduled" && (
-                    <FieldBlock title="Next step" tone="indigo">
-                      <p className="flex items-start gap-2"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0" /> After the call finishes, Zoom sends events. CRM verifies attendance, pulls transcript/recording, analyzes discussion, and marks this slot attended.</p>
-                    </FieldBlock>
-                  )}
                 </div>
               )}
               {legacyCompleted && (
                 <p className="mt-3 text-xs leading-5 text-slate-500">
                   This completed entitlement was carried forward from the existing CRM count. New sessions will include verified Zoom attendance and automated notes.
-                </p>
-              )}
-
-              {session?.aiSummary && (
-                <p className="mt-3 line-clamp-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-                  {session.aiSummary}
                 </p>
               )}
               {session?.lastError && ["failed", "review_required"].includes(session.status) && (

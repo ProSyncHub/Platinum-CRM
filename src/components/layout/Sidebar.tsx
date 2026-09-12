@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navigation } from "@/lib/constants/navigation";
@@ -12,6 +13,47 @@ export default function Sidebar() {
   const role = session?.user?.role?.trim().toLowerCase();
   const isAdmin = role === "owner" || role === "admin" || role === "superadmin";
   const canManageTeam = isAdmin || role === "manager";
+  const [counts, setCounts] = useState({ queries: 0, wati: 0 });
+  const [access, setAccess] = useState({ leads: isAdmin, wati: isAdmin });
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let active = true;
+    async function loadCounts() {
+      try {
+        const response = await fetch("/api/navigation/counts", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as Partial<typeof counts> & {
+          access?: Partial<typeof access>;
+        };
+        if (active) {
+          setCounts({
+            queries: Number(data.queries || 0),
+            wati: Number(data.wati || 0),
+          });
+          const nextAccess = data.access as Partial<typeof access> | undefined;
+          setAccess({
+            leads: Boolean(nextAccess?.leads || isAdmin),
+            wati: Boolean(nextAccess?.wati || isAdmin),
+          });
+        }
+      } catch {
+        // Navigation counts are best-effort only.
+      }
+    }
+    void loadCounts();
+    const interval = window.setInterval(loadCounts, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [session?.user, isAdmin]);
+
+  function notificationCount(href: string) {
+    if (href === "/queries") return counts.queries;
+    if (href === "/wati") return counts.wati;
+    return 0;
+  }
 
   return (
     <aside className="w-64 border-r border-slate-200 bg-white flex flex-col justify-between select-none shadow-xs">
@@ -39,12 +81,17 @@ export default function Sidebar() {
             const Icon = item.icon;
             const isTeam = item.href === "/team";
             const isApproval = item.href === "/approvals";
+            const isLeads = item.href === "/leads";
+            const isWati = item.href === "/wati";
             const isActive =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
             if (isTeam && !canManageTeam) return null;
             if (item.adminOnly && !isAdmin) return null;
+            if (isLeads && !access.leads) return null;
+            if (isWati && !access.wati) return null;
+            const badgeCount = notificationCount(item.href);
 
             return (
               <Link
@@ -77,6 +124,18 @@ export default function Sidebar() {
                     )}
                   >
                       {isApproval ? "Admin" : "Super Admin"}
+                  </span>
+                )}
+                {badgeCount > 0 && !(isTeam || isApproval) && (
+                  <span
+                    className={cn(
+                      "ml-2 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-black",
+                      isActive
+                        ? "bg-amber-400 text-slate-950"
+                        : "bg-rose-100 text-rose-700"
+                    )}
+                  >
+                    {badgeCount > 99 ? "99+" : badgeCount}
                   </span>
                 )}
               </Link>

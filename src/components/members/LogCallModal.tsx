@@ -134,9 +134,44 @@ export default function LogCallModal({
     return staffOptions.filter(
       (person) =>
         person.department.trim().toLowerCase() ===
-        viewer.department.trim().toLowerCase(),
+      viewer.department.trim().toLowerCase(),
     );
   }, [normalizedRole, staffOptions, viewer.department]);
+  const smartTransferHints = useMemo(() => {
+    return notes
+      .split(";")
+      .map((part) => {
+        const slashIndex = part.lastIndexOf("/");
+        if (slashIndex < 0) return null;
+        const request = part.slice(0, slashIndex).trim();
+        const target = part.slice(slashIndex + 1).trim();
+        if (!target) return null;
+        const normalizedTarget = target.toLowerCase();
+        const matchedPerson = staffOptions.find((person) => {
+          const name = person.name.trim().toLowerCase();
+          const emailPrefix = person.email.split("@")[0]?.trim().toLowerCase() || "";
+          return (
+            name === normalizedTarget ||
+            name.includes(normalizedTarget) ||
+            normalizedTarget.includes(name) ||
+            (emailPrefix.length > 2 && normalizedTarget.includes(emailPrefix))
+          );
+        });
+        return {
+          request: request || "This query",
+          target,
+          matchedPerson,
+        };
+      })
+      .filter(
+        (hint): hint is {
+          request: string;
+          target: string;
+          matchedPerson: AssignableStaffView | undefined;
+        } => Boolean(hint),
+      )
+      .slice(0, 6);
+  }, [notes, staffOptions]);
 
   if (!isOpen) return null;
 
@@ -188,7 +223,7 @@ export default function LogCallModal({
         result.autoResolvedTransfer
           ? "Communication saved and the transferred query was marked resolved."
           : result.autoTransfer
-          ? `Communication saved and auto-transferred to ${result.autoTransfer.assigneeName || result.autoTransfer.department}.`
+          ? `Communication saved and auto-transferred ${result.autoTransfer.length} quer${result.autoTransfer.length === 1 ? "y" : "ies"}.`
           : scheduleFollowUp
             ? "Communication saved and next follow-up assigned."
             : "Communication saved.",
@@ -373,10 +408,43 @@ export default function LogCallModal({
                   rows={8}
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Discussion, member response, action taken, and next step..."
+                  placeholder="Discussion, member response, action taken, and next step... Use /name to transfer, e.g. Website issue /Dev Rathore; invoice issue /Mayank tomorrow 5pm"
                   className={`${inputClass} h-auto py-3`}
                 />
               </Field>
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs leading-5 text-indigo-950">
+                <p className="font-black">Smart transfer from notes</p>
+                <p className="mt-1">
+                  Type <strong>/person name</strong> in the note to create a transferred query automatically.
+                  Use <strong>;</strong> to split one log into multiple tickets.
+                </p>
+                <p className="mt-1 text-indigo-700">
+                  Example: <span className="font-semibold">Catalog issue /Dev Rathore; payment follow-up /Mayank tomorrow 5pm</span>
+                </p>
+                {smartTransferHints.length > 0 && (
+                  <div className="mt-3 space-y-2 rounded-lg bg-white/70 p-2">
+                    <p className="font-black text-indigo-900">Detected transfers</p>
+                    {smartTransferHints.map((hint, index) => (
+                      <div
+                        key={`${hint.target}-${index}`}
+                        className="rounded-md border border-indigo-100 bg-white px-2 py-1"
+                      >
+                        <span className="font-semibold">{hint.request}</span>
+                        <span className="mx-1 text-indigo-400">→</span>
+                        {hint.matchedPerson ? (
+                          <span>
+                            {hint.matchedPerson.name} · {hint.matchedPerson.department}
+                          </span>
+                        ) : (
+                          <span>
+                            {hint.target} <span className="text-indigo-500">(will match person or department)</span>
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {escalateDepartment !== "none" && (
                 <Field label="Issue for the notified department">
                   <textarea

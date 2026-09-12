@@ -13,6 +13,8 @@ import {
   hashLeadSecret,
   slugifyLeadSource,
 } from "@/lib/leads";
+import { fetchWatiConversationMessages } from "@/lib/watiApi";
+import { normalizeWatiLeadPayload } from "@/lib/watiLeads";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const ADMIN_ROLES = new Set(["owner", "admin", "superadmin"]);
@@ -345,4 +347,65 @@ export async function assignLeadToUser(leadId: string, userId: string) {
   });
   refreshLeadViews();
   return { success: true as const, message: `Assigned to ${assignee.name}.` };
+}
+
+export async function syncWatiConversationForLead(leadId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false as const, error: "Unauthorized" };
+  if (!OBJECT_ID_PATTERN.test(leadId)) {
+    return { success: false as const, error: "Choose a valid WATI lead." };
+  }
+  if (!(await canAccessWatiLeads(session.user))) {
+    return { success: false as const, error: "You do not have access to WATI leads." };
+  }
+
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: {
+      id: true,
+      fullName: true,
+      phone: true,
+      source: { select: { id: true, slug: true, defaultCampaign: true } },
+    },
+  });
+  if (!lead || lead.source.slug !== "wati") {
+    return { success: false as const, error: "Open a valid WATI lead first." };
+  }
+  if (!lead.phone) {
+    return { success: false as const, error: "This WATI lead has no phone number to sync." };
+  }
+
+  const result = await fetchWatiConversationMessages(lead.phone, 50);
+  if (!result.success) return result;
+
+  let created = 0;
+  let skipped = 0;
+  for (const message of result.messages) {
+    const normalized = normalizeWatiLeadPayload({
+      ...message,
+      waId: message.waId || message.phone || message.phoneNumber || lead.phone,
+      contactName: message.contactName || message.senderName || lead.fullName,
+    });
+    if (!normalized.accepted) {
+      skipped += 1;
+      continue;
+    }
+    const saved = await createLeadRecord({
+      sourceId: lead.source.id,
+      input: normalized.input,
+      defaultCampaign: lead.source.defaultCampaign,
+      rawPayload: message,
+      sourceSlug: "wati",
+    });
+    if (saved.created) created += 1;
+    else skipped += 1;
+  }
+
+  refreshLeadViews();
+  return {
+    success: true as const,
+    created,
+    skipped,
+    message: `Synced WATI chat: ${created} new CRM item${created === 1 ? "" : "s"}, ${skipped} ignored/duplicate.`,
+  };
 }

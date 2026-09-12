@@ -37,6 +37,25 @@ function directString(payload: JsonRecord, aliases: string[]) {
   return "";
 }
 
+function isTrivialChatMessage(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ");
+  if (!normalized) return true;
+  if (normalized.length <= 2) return true;
+  return [
+    "hi",
+    "hello",
+    "hey",
+    "ok",
+    "okay",
+    "k",
+    "yes",
+    "no",
+    "thanks",
+    "thank you",
+    "👍",
+  ].includes(normalized);
+}
+
 export function normalizeWatiLeadPayload(payload: unknown):
   | { accepted: true; input: NormalizedLeadInput }
   | { accepted: false; reason: string } {
@@ -77,10 +96,12 @@ export function normalizeWatiLeadPayload(payload: unknown):
     generic.responseText,
   ].filter(Boolean);
   const responseText =
-    replyCandidates.find((candidate) => normalizeLeadResponse(candidate) !== "other") || "";
+    replyCandidates.find((candidate) => normalizeLeadResponse(candidate) !== "other") ||
+    replyCandidates.find((candidate) => !isTrivialChatMessage(candidate)) ||
+    "";
   const responseCode = normalizeLeadResponse(responseText);
-  if (responseCode === "other") {
-    return { accepted: false, reason: "Reply is not one of the configured lead options" };
+  if (responseCode === "other" && isTrivialChatMessage(responseText)) {
+    return { accepted: false, reason: "Trivial chat message ignored" };
   }
 
   const phone =
@@ -114,7 +135,11 @@ export function normalizeWatiLeadPayload(payload: unknown):
         generic.campaign,
       receivedAt: timestamp || generic.receivedAt,
       externalId: externalId || generic.externalId,
-      notes: generic.notes || "WATI campaign quick-reply response",
+      notes:
+        generic.notes ||
+        (responseCode === "other"
+          ? `WATI chat message: ${responseText}`
+          : "WATI campaign quick-reply response"),
     },
   };
 }
